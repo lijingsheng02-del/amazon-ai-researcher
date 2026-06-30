@@ -491,12 +491,16 @@ function Section({
   )
 }
 
-function ListBlock({ items, tone = 'neutral' }: { items: string[]; tone?: 'neutral' | 'risk' | 'good' }) {
+function ListBlock({ items, tone = 'neutral' }: { items?: string[]; tone?: 'neutral' | 'risk' | 'good' }) {
   const marker =
     tone === 'risk' ? 'bg-rose-500' : tone === 'good' ? 'bg-emerald-500' : 'bg-blue-500'
+  const safeItems = Array.isArray(items) ? items.filter(Boolean) : []
+  if (!safeItems.length) {
+    return <p className="paragraph">旧报告没有保存这个字段。重新运行调研后会生成这一项。</p>
+  }
   return (
     <ul className="space-y-2">
-      {items.map((item, index) => (
+      {safeItems.map((item, index) => (
         <li key={`${item}-${index}`} className="flex gap-3 text-sm leading-6 text-slate-700">
           <span className={`mt-2 h-1.5 w-1.5 shrink-0 rounded-full ${marker}`} />
           <span>{item}</span>
