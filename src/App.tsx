@@ -79,6 +79,8 @@ type PersonaResult = {
   possible_bad_review_reason: string
   suggested_improvement: string
   image_expectation: string
+  image_purchase_impact: string
+  image_consistency_feedback: string
   listing_copy_suggestion: string
   confidence_score: number
 }
@@ -95,6 +97,7 @@ type ReportSummary = {
   bullet_points_direction: string[]
   main_image_suggestions: string[]
   aplus_image_suggestions: string[]
+  image_feedback_summary: string[]
   qa_suggestions: string[]
   final_operator_summary: string
   metadata?: ResearchMetadata
@@ -172,7 +175,7 @@ const emptyProduct: ProductInput = {
   images: [],
 }
 
-const maxProductImages = 6
+const maxProductImages = 9
 const maxImageBytes = 2.5 * 1024 * 1024
 
 const navItems = [
@@ -1201,6 +1204,7 @@ export default function App() {
           <Section title={tr('五点描述方向', 'Bullet direction')}><ListBlock items={summary.bullet_points_direction} /></Section>
           <Section title={tr('主图建议', 'Main image suggestions')}><ListBlock items={summary.main_image_suggestions} /></Section>
           <Section title={tr('A+ 图片建议', 'A+ image suggestions')}><ListBlock items={summary.aplus_image_suggestions} /></Section>
+          <Section title="买家图片评价"><ListBlock items={summary.image_feedback_summary} /></Section>
           <Section title={tr('QA 问题预测', 'QA predictions')}><ListBlock items={summary.qa_suggestions} /></Section>
           <Section title={tr('运营结论', 'Operator summary')}><p className="paragraph strong">{summary.final_operator_summary}</p></Section>
         </div>
@@ -1220,6 +1224,8 @@ export default function App() {
                     <p><b>差评风险：</b>{item.possible_bad_review_reason}</p>
                     <p><b>使用场景：</b>{item.usage_scenario}</p>
                     <p><b>图片期待：</b>{item.image_expectation}</p>
+                    <p><b>图片影响：</b>{item.image_purchase_impact}</p>
+                    <p><b>图片一致性：</b>{item.image_consistency_feedback}</p>
                     <p><b>文案建议：</b>{item.listing_copy_suggestion}</p>
                     <p><b>改进建议：</b>{item.suggested_improvement}</p>
                   </div>

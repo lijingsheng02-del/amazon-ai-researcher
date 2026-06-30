@@ -6,7 +6,7 @@ The app is designed for internal research, product planning, listing strategy, a
 
 ## Current Version
 
-`v0.2.1`
+`v0.3.0`
 
 ## Key Features
 
@@ -20,7 +20,8 @@ The app is designed for internal research, product planning, listing strategy, a
 - Custom report names before generation and report renaming after generation.
 - Styled `.xlsx` export for finished reports, including embedded uploaded product images when the image format is Excel-compatible.
 - More visible research progress states during offline and API-enhanced generation.
-- Product image upload for report context.
+- Product image upload for report context, up to 9 images per product.
+- Buyer-level image evaluation, including image impact on purchase intent and consistency between images, selling points, size/material claims, and usage scenarios.
 - Amazon product link and competitor link input.
 - Operator-facing report modules covering:
   - Purchase intent
@@ -31,6 +32,7 @@ The app is designed for internal research, product planning, listing strategy, a
   - Listing optimization suggestions
   - Main image ideas
   - A+ content image ideas
+  - Buyer image feedback
   - Predicted customer Q&A
 
 ## Product Philosophy

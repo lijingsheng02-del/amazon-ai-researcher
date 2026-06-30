@@ -457,6 +457,7 @@ function addSummarySheet(workbook, report) {
     ['Bullet Direction', bulletText(summary.bullet_points_direction)],
     ['Main Image Suggestions', bulletText(summary.main_image_suggestions)],
     ['A+ Image Suggestions', bulletText(summary.aplus_image_suggestions)],
+    ['Buyer Image Feedback', bulletText(summary.image_feedback_summary)],
     ['QA Suggestions', bulletText(summary.qa_suggestions)]
   ]);
 
@@ -479,13 +480,16 @@ function addPersonaSheet(workbook, report) {
     { key: 'bad_review', width: 38 },
     { key: 'improvement', width: 38 },
     { key: 'image', width: 38 },
+    { key: 'image_impact', width: 42 },
+    { key: 'image_consistency', width: 42 },
     { key: 'copy', width: 38 },
     { key: 'confidence', width: 12 }
   ];
   sheet.addRow([
     'Persona ID', 'Intent Score', 'Likely To Buy', 'Positive Points', 'Negative Points',
     'Price Reaction', 'Usage Scenario', 'Main Objection', 'Bad Review Risk',
-    'Suggested Improvement', 'Image Expectation', 'Listing Copy Suggestion', 'Confidence'
+    'Suggested Improvement', 'Image Expectation', 'Image Purchase Impact',
+    'Image Consistency Feedback', 'Listing Copy Suggestion', 'Confidence'
   ]);
 
   for (const item of report.personaResults || []) {
@@ -501,13 +505,15 @@ function addPersonaSheet(workbook, report) {
       item.possible_bad_review_reason,
       item.suggested_improvement,
       item.image_expectation,
+      item.image_purchase_impact,
+      item.image_consistency_feedback,
       item.listing_copy_suggestion,
       item.confidence_score
     ]);
   }
 
   styleHeaderRow(sheet, 1);
-  sheet.autoFilter = 'A1:M1';
+  sheet.autoFilter = 'A1:O1';
   finalizeSheet(sheet);
 }
 
@@ -764,6 +770,8 @@ function normalizePayload(raw) {
       possible_bad_review_reason: String(item.possible_bad_review_reason || ''),
       suggested_improvement: String(item.suggested_improvement || ''),
       image_expectation: String(item.image_expectation || ''),
+      image_purchase_impact: String(item.image_purchase_impact || ''),
+      image_consistency_feedback: String(item.image_consistency_feedback || ''),
       listing_copy_suggestion: String(item.listing_copy_suggestion || ''),
       confidence_score: Math.max(0, Math.min(1, Number(item.confidence_score || 0.6)))
     })),
@@ -779,6 +787,7 @@ function normalizePayload(raw) {
       bullet_points_direction: normalizeArray(summary.bullet_points_direction),
       main_image_suggestions: normalizeArray(summary.main_image_suggestions),
       aplus_image_suggestions: normalizeArray(summary.aplus_image_suggestions),
+      image_feedback_summary: normalizeArray(summary.image_feedback_summary),
       qa_suggestions: normalizeArray(summary.qa_suggestions),
       final_operator_summary: String(summary.final_operator_summary || '')
     },
@@ -1076,6 +1085,8 @@ Return one JSON object only:
       "possible_bad_review_reason": "string",
       "suggested_improvement": "string",
       "image_expectation": "string",
+      "image_purchase_impact": "string",
+      "image_consistency_feedback": "string",
       "listing_copy_suggestion": "string",
       "confidence_score": 0.7
     }
@@ -1086,6 +1097,8 @@ Rules:
 - Generate exactly ${selectedPersonas.length} persona_results, one for every persona_id in this batch.
 - purchase_intent_score must be an integer from 1 to 5.
 - confidence_score must be 0 to 1.
+- image_purchase_impact must explain how the uploaded/listing images increase or decrease this persona's purchase intent.
+- image_consistency_feedback must evaluate whether images, selling points, size/material claims, and usage scenario feel consistent or create trust gaps.
 - Be concrete and operational. Avoid generic praise.
 - Write in Simplified Chinese, but keep persona_id unchanged.`;
 }
@@ -1192,6 +1205,8 @@ function buildRuleBasedPersonaResults(product, selectedPersonas) {
       possible_bad_review_reason: negatives[0] ? `如果实际体验出现“${negatives[0]}”，容易转化为差评。` : '如果尺寸、材质或安装体验与页面预期不一致，容易形成差评。',
       suggested_improvement: buildImprovement(product, persona),
       image_expectation: buildImageExpectation(product, persona),
+      image_purchase_impact: buildImagePurchaseImpact(product, persona, positives, negatives),
+      image_consistency_feedback: buildImageConsistencyFeedback(product, persona, positives, negatives),
       listing_copy_suggestion: buildListingSuggestion(product, persona),
       confidence_score: 0.56
     };
@@ -1258,6 +1273,35 @@ function buildImageExpectation(product, persona) {
   return `需要展示 ${product.productName || '产品'} 的实际使用前后对比、细节特写和安装/收纳过程。`;
 }
 
+function buildImagePurchaseImpact(product, persona, positives, negatives) {
+  const imageCount = Array.isArray(product.images) ? product.images.length : 0;
+  const topPoint = positives[0] || '核心卖点';
+  const topRisk = negatives[0] || '尺寸、材质和真实使用效果';
+  if (imageCount === 0) {
+    return `当前没有图片证据，${persona.id} 会把购买意愿下调，因为无法确认 ${topPoint} 是否真实解决 ${topRisk}。`;
+  }
+  if (imageCount < 4) {
+    return `当前 ${imageCount} 张图只能提供初步信任，若没有尺寸、材质、场景和细节图，购买意愿仍会被 ${topRisk} 拖低。`;
+  }
+  if (imageCount >= 8) {
+    return `图片数量充足，若主图、场景图、尺寸图和细节图表达一致，会明显提升该 persona 对 ${topPoint} 的信任和购买意愿。`;
+  }
+  return `图片数量基本够用，但必须让每张图各自承担任务：主图证明外观，尺寸图证明适配，细节图证明材质，场景图证明 ${topPoint} 的真实价值。`;
+}
+
+function buildImageConsistencyFeedback(product, persona, positives, negatives) {
+  const imageCount = Array.isArray(product.images) ? product.images.length : 0;
+  const point = positives[0] || product.sellingPoints || '卖点';
+  const weakness = negatives[0] || product.knownWeaknesses || '潜在缺点';
+  if (imageCount === 0) {
+    return '图片链路为空，卖点、尺寸、材质和使用场景之间没有视觉证据闭环。';
+  }
+  if (imageCount < 6) {
+    return `图片需要补齐一致性：如果文案说“${point}”，图片必须同步证明；如果存在“${weakness}”，也要用细节图提前管理预期。`;
+  }
+  return `需要检查 9 图逻辑是否一致：主图吸引点击，副图逐一证明 ${point}，尺寸/材质/安装/场景图不能互相矛盾，也不能只做氛围图。`;
+}
+
 function buildListingSuggestion(product, persona) {
   const point = splitInput(product.sellingPoints)[0] || '核心功能';
   return `标题和五点应优先讲清“${point}”对 ${persona.ageRange} ${persona.occupation} 这类人的实际价值。`;
@@ -1316,6 +1360,13 @@ function buildLocalSummary(product, personaResults, selectedPersonas, researchPl
       '做一张材质与结构细节图：承重、连接、边角、表面处理。',
       '做一张竞品差异图：明确你比普通款多解决了什么。'
     ],
+    image_feedback_summary: collectTopItems([
+      ...personaResults.map((item) => item.image_purchase_impact),
+      ...personaResults.map((item) => item.image_consistency_feedback),
+      imageCount >= 9
+        ? '图片数量已经接近完整 9 图链路，下一步重点不是继续加图，而是检查主图、尺寸图、材质图、场景图、安装图和对比图是否各自承担明确任务。'
+        : `当前只有 ${imageCount} 张图片，建议补足到 9 张：主图、尺寸图、材质细节、场景图、功能步骤、安装/收纳、痛点对比、竞品差异、包装/配件。`
+    ]),
     qa_suggestions: [
       ...template.operator_questions,
       '尺寸是否适合我的空间？',
