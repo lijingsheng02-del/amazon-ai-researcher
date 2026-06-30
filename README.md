@@ -6,7 +6,7 @@ The app is designed for internal research, product planning, listing strategy, a
 
 ## Current Version
 
-`v0.4.0`
+`v0.4.1`
 
 ## Key Features
 
@@ -155,7 +155,6 @@ Near-term priorities:
 - Add competitor ASIN comparison modules.
 - Add keyword and pricing-band research inputs.
 - Improve historical report comparison.
-- Add export formats for operator handoff.
 - Improve category-specific templates and persona weighting.
 
 ## Ethical Boundary
