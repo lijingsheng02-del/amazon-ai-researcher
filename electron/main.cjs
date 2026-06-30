@@ -1,7 +1,7 @@
 const { app, BrowserWindow, dialog, ipcMain } = require('electron');
-const fs = require('fs');
 const path = require('path');
 const Database = require('better-sqlite3');
+const ExcelJS = require('exceljs');
 
 const isDev = Boolean(process.env.VITE_DEV_SERVER_URL);
 
@@ -372,127 +372,299 @@ async function exportReportExcel(event, reportId) {
   const report = getReport(reportId);
   if (!report) throw new Error('报告不存在。');
   const win = BrowserWindow.fromWebContents(event.sender);
-  const defaultPath = `${safeFileName(report.title)}-${formatDateForFile(report.createdAt)}.xls`;
+  const defaultPath = `${safeFileName(report.title)}-${formatDateForFile(report.createdAt)}.xlsx`;
   const result = await dialog.showSaveDialog(win, {
     title: '导出 Excel 报告',
     defaultPath,
-    filters: [{ name: 'Excel Workbook', extensions: ['xls'] }]
+    filters: [{ name: 'Excel Workbook', extensions: ['xlsx'] }]
   });
   if (result.canceled || !result.filePath) return { canceled: true };
-  fs.writeFileSync(result.filePath, buildExcelXml(report), 'utf8');
+  const workbook = buildExcelWorkbook(report);
+  await workbook.xlsx.writeFile(result.filePath);
   return { canceled: false, filePath: result.filePath };
 }
 
-function buildExcelXml(report) {
+function buildExcelWorkbook(report) {
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = 'Amazon AI Researcher';
+  workbook.created = new Date();
+  workbook.modified = new Date();
+
+  addSummarySheet(workbook, report);
+  addPersonaSheet(workbook, report);
+  addProductInputSheet(workbook, report);
+  addImagesSheet(workbook, report);
+
+  return workbook;
+}
+
+function addSummarySheet(workbook, report) {
   const summary = report.summary || {};
   const personaResults = report.personaResults || [];
   const product = report.product || {};
   const metadata = summary.metadata || {};
-  const sheets = [
-    {
-      name: 'Summary',
-      rows: [
-        ['Report Title', report.title],
-        ['Created At', report.createdAt],
-        ['Product Name', product.productName || ''],
-        ['Category', product.category || ''],
-        ['Price', product.price || ''],
-        ['Overall Purchase Intent', summary.overall_purchase_intent || ''],
-        ['Likely Buyers', personaResults.filter((item) => item.likely_to_buy).length],
-        ['Sample Size', personaResults.length],
-        ['Category Template', metadata.category_template?.name || ''],
-        ['Top Positive Points', normalizeArray(summary.top_positive_points).join('\n')],
-        ['Top Negative Risks', normalizeArray(summary.top_negative_risks).join('\n')],
-        ['Best Target Customers', normalizeArray(summary.best_target_customers).join('\n')],
-        ['Weak Target Customers', normalizeArray(summary.weak_target_customers).join('\n')],
-        ['Price Feedback', summary.price_sensitivity_summary || ''],
-        ['Product Improvements', normalizeArray(summary.product_optimization_suggestions).join('\n')],
-        ['Listing Title Direction', summary.listing_title_direction || ''],
-        ['Bullet Direction', normalizeArray(summary.bullet_points_direction).join('\n')],
-        ['Main Image Suggestions', normalizeArray(summary.main_image_suggestions).join('\n')],
-        ['A+ Image Suggestions', normalizeArray(summary.aplus_image_suggestions).join('\n')],
-        ['QA Suggestions', normalizeArray(summary.qa_suggestions).join('\n')],
-        ['Operator Summary', summary.final_operator_summary || '']
-      ]
-    },
-    {
-      name: 'Persona Results',
-      rows: [
-        ['Persona ID', 'Intent Score', 'Likely To Buy', 'Positive Points', 'Negative Points', 'Price Reaction', 'Usage Scenario', 'Main Objection', 'Bad Review Risk', 'Suggested Improvement', 'Image Expectation', 'Listing Copy Suggestion', 'Confidence'],
-        ...personaResults.map((item) => [
-          item.persona_id,
-          item.purchase_intent_score,
-          item.likely_to_buy ? 'TRUE' : 'FALSE',
-          normalizeArray(item.positive_points).join('\n'),
-          normalizeArray(item.negative_points).join('\n'),
-          item.price_reaction,
-          item.usage_scenario,
-          item.main_objection,
-          item.possible_bad_review_reason,
-          item.suggested_improvement,
-          item.image_expectation,
-          item.listing_copy_suggestion,
-          item.confidence_score
-        ])
-      ]
-    },
-    {
-      name: 'Product Input',
-      rows: [
-        ['Field', 'Value'],
-        ['Report Title', report.title],
-        ['Product URL', product.productUrl || ''],
-        ['Competitor URLs', product.competitorUrls || ''],
-        ['Research Notes', product.researchNotes || ''],
-        ['Product Name', product.productName || ''],
-        ['Category', product.category || ''],
-        ['Price', product.price || ''],
-        ['Dimensions', product.dimensions || ''],
-        ['Material', product.material || ''],
-        ['Selling Points', product.sellingPoints || ''],
-        ['Target Audience', product.targetAudience || ''],
-        ['Competitor Notes', product.competitors || ''],
-        ['Known Weaknesses', product.knownWeaknesses || ''],
-        ['Image Count', Array.isArray(product.images) ? product.images.length : 0]
-      ]
-    }
+  const sheet = workbook.addWorksheet('Summary', {
+    views: [{ state: 'frozen', ySplit: 1 }]
+  });
+  sheet.columns = [
+    { key: 'label', width: 28 },
+    { key: 'value', width: 46 },
+    { key: 'extra1', width: 24 },
+    { key: 'extra2', width: 24 }
   ];
 
-  return `<?xml version="1.0" encoding="UTF-8"?>
-<?mso-application progid="Excel.Sheet"?>
-<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
-  xmlns:o="urn:schemas-microsoft-com:office:office"
-  xmlns:x="urn:schemas-microsoft-com:office:excel"
-  xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
-  <Styles>
-    <Style ss:ID="Header"><Font ss:Bold="1"/><Interior ss:Color="#EAF2FF" ss:Pattern="Solid"/></Style>
-    <Style ss:ID="Wrap"><Alignment ss:Vertical="Top" ss:WrapText="1"/></Style>
-  </Styles>
-${sheets.map(buildWorksheetXml).join('\n')}
-</Workbook>`;
+  sheet.mergeCells('A1:D1');
+  const titleCell = sheet.getCell('A1');
+  titleCell.value = report.title;
+  titleCell.style = styles.title;
+  sheet.getRow(1).height = 34;
+
+  sheet.addRow([]);
+  sheet.addRow(['Overall Purchase Intent', 'Likely Buyers', 'Sample Size', 'Category Template']);
+  sheet.addRow([
+    `${summary.overall_purchase_intent || 0}/5`,
+    personaResults.filter((item) => item.likely_to_buy).length,
+    personaResults.length,
+    metadata.category_template?.name || ''
+  ]);
+  styleRange(sheet, 3, 4, 1, 4, styles.metric);
+  styleRange(sheet, 4, 4, 1, 4, styles.metricValue);
+
+  addSection(sheet, 'Product Basics');
+  addKeyValueRows(sheet, [
+    ['Created At', formatDisplayDate(report.createdAt)],
+    ['Product Name', product.productName || ''],
+    ['Category', product.category || ''],
+    ['Price', product.price || ''],
+    ['Dimensions', product.dimensions || ''],
+    ['Material', product.material || '']
+  ]);
+
+  addSection(sheet, 'Research Summary');
+  addKeyValueRows(sheet, [
+    ['Top Positive Points', bulletText(summary.top_positive_points)],
+    ['Top Negative Risks', bulletText(summary.top_negative_risks)],
+    ['Best Target Customers', bulletText(summary.best_target_customers)],
+    ['Weak Target Customers', bulletText(summary.weak_target_customers)],
+    ['Price Feedback', summary.price_sensitivity_summary || ''],
+    ['Operator Summary', summary.final_operator_summary || '']
+  ]);
+
+  addSection(sheet, 'Listing & Image Direction');
+  addKeyValueRows(sheet, [
+    ['Product Improvements', bulletText(summary.product_optimization_suggestions)],
+    ['Listing Title Direction', summary.listing_title_direction || ''],
+    ['Bullet Direction', bulletText(summary.bullet_points_direction)],
+    ['Main Image Suggestions', bulletText(summary.main_image_suggestions)],
+    ['A+ Image Suggestions', bulletText(summary.aplus_image_suggestions)],
+    ['QA Suggestions', bulletText(summary.qa_suggestions)]
+  ]);
+
+  finalizeSheet(sheet);
 }
 
-function buildWorksheetXml(sheet) {
-  return `  <Worksheet ss:Name="${xmlEscape(sheet.name)}">
-    <Table>
-${sheet.rows.map((row, rowIndex) => `      <Row>${row.map((cell) => buildCellXml(cell, rowIndex === 0 && sheet.rows[0].length > 2)).join('')}</Row>`).join('\n')}
-    </Table>
-  </Worksheet>`;
+function addPersonaSheet(workbook, report) {
+  const sheet = workbook.addWorksheet('Persona Results', {
+    views: [{ state: 'frozen', ySplit: 1 }]
+  });
+  sheet.columns = [
+    { key: 'persona_id', width: 13 },
+    { key: 'score', width: 12 },
+    { key: 'buy', width: 13 },
+    { key: 'positive', width: 38 },
+    { key: 'negative', width: 38 },
+    { key: 'price', width: 36 },
+    { key: 'scenario', width: 36 },
+    { key: 'objection', width: 36 },
+    { key: 'bad_review', width: 38 },
+    { key: 'improvement', width: 38 },
+    { key: 'image', width: 38 },
+    { key: 'copy', width: 38 },
+    { key: 'confidence', width: 12 }
+  ];
+  sheet.addRow([
+    'Persona ID', 'Intent Score', 'Likely To Buy', 'Positive Points', 'Negative Points',
+    'Price Reaction', 'Usage Scenario', 'Main Objection', 'Bad Review Risk',
+    'Suggested Improvement', 'Image Expectation', 'Listing Copy Suggestion', 'Confidence'
+  ]);
+
+  for (const item of report.personaResults || []) {
+    sheet.addRow([
+      item.persona_id,
+      item.purchase_intent_score,
+      item.likely_to_buy ? 'TRUE' : 'FALSE',
+      bulletText(item.positive_points),
+      bulletText(item.negative_points),
+      item.price_reaction,
+      item.usage_scenario,
+      item.main_objection,
+      item.possible_bad_review_reason,
+      item.suggested_improvement,
+      item.image_expectation,
+      item.listing_copy_suggestion,
+      item.confidence_score
+    ]);
+  }
+
+  styleHeaderRow(sheet, 1);
+  sheet.autoFilter = 'A1:M1';
+  finalizeSheet(sheet);
 }
 
-function buildCellXml(value, isHeader) {
-  const type = typeof value === 'number' && Number.isFinite(value) ? 'Number' : 'String';
-  const style = isHeader ? ' ss:StyleID="Header"' : ' ss:StyleID="Wrap"';
-  return `<Cell${style}><Data ss:Type="${type}">${xmlEscape(value)}</Data></Cell>`;
+function addProductInputSheet(workbook, report) {
+  const product = report.product || {};
+  const images = Array.isArray(product.images) ? product.images : [];
+  const sheet = workbook.addWorksheet('Product Input');
+  sheet.columns = [
+    { key: 'field', width: 28 },
+    { key: 'value', width: 88 }
+  ];
+  sheet.mergeCells('A1:B1');
+  sheet.getCell('A1').value = 'Product Input';
+  sheet.getCell('A1').style = styles.title;
+  sheet.getRow(1).height = 32;
+  addKeyValueRows(sheet, [
+    ['Report Title', report.title],
+    ['Product URL', product.productUrl || ''],
+    ['Competitor URLs', product.competitorUrls || ''],
+    ['Research Notes', product.researchNotes || ''],
+    ['Product Name', product.productName || ''],
+    ['Category', product.category || ''],
+    ['Price', product.price || ''],
+    ['Dimensions', product.dimensions || ''],
+    ['Material', product.material || ''],
+    ['Selling Points', product.sellingPoints || ''],
+    ['Target Audience', product.targetAudience || ''],
+    ['Competitor Notes', product.competitors || ''],
+    ['Known Weaknesses', product.knownWeaknesses || ''],
+    ['Image Count', images.length]
+  ]);
+  finalizeSheet(sheet);
 }
 
-function xmlEscape(value) {
-  return String(value ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&apos;');
+function addImagesSheet(workbook, report) {
+  const product = report.product || {};
+  const images = Array.isArray(product.images) ? product.images : [];
+  const sheet = workbook.addWorksheet('Product Images');
+  sheet.columns = [
+    { key: 'image1', width: 18 },
+    { key: 'image2', width: 18 },
+    { key: 'image3', width: 18 },
+    { key: 'meta', width: 42 },
+    { key: 'note', width: 42 }
+  ];
+  sheet.mergeCells('A1:E1');
+  sheet.getCell('A1').value = 'Product Images';
+  sheet.getCell('A1').style = styles.title;
+  sheet.getRow(1).height = 32;
+
+  if (!images.length) {
+    sheet.addRow(['No uploaded product images.']);
+    finalizeSheet(sheet);
+    return;
+  }
+
+  let rowNumber = 3;
+  for (const [index, image] of images.entries()) {
+    sheet.mergeCells(`A${rowNumber}:C${rowNumber}`);
+    sheet.getCell(`A${rowNumber}`).value = `Image ${index + 1}`;
+    sheet.getCell(`A${rowNumber}`).style = styles.section;
+    sheet.getCell(`D${rowNumber}`).value = image.name || '';
+    sheet.getCell(`D${rowNumber}`).style = styles.field;
+    sheet.getCell(`E${rowNumber}`).value = `${image.type || ''} / ${Math.round(Number(image.size || 0) / 1024)} KB`;
+    sheet.getCell(`E${rowNumber}`).style = styles.field;
+
+    const imageInfo = getExcelImageInfo(image);
+    if (imageInfo) {
+      const imageId = workbook.addImage(imageInfo);
+      sheet.addImage(imageId, {
+        tl: { col: 0.15, row: rowNumber + 0.3 },
+        ext: { width: 320, height: 220 }
+      });
+      sheet.getRow(rowNumber + 1).height = 168;
+      sheet.getCell(`D${rowNumber + 1}`).value = 'Embedded image';
+      sheet.getCell(`E${rowNumber + 1}`).value = '图片已写入 Excel 文件，不依赖外部链接。';
+    } else {
+      sheet.getCell(`D${rowNumber + 1}`).value = 'Unsupported image format';
+      sheet.getCell(`E${rowNumber + 1}`).value = 'Excel 导出目前直接支持 JPG / PNG / GIF。WebP 请先转成 JPG 或 PNG 后上传。';
+    }
+    styleRange(sheet, rowNumber + 1, rowNumber + 1, 4, 5, styles.value);
+    rowNumber += 12;
+  }
+
+  finalizeSheet(sheet);
+}
+
+function getExcelImageInfo(image) {
+  const dataUrl = String(image.dataUrl || '');
+  const match = dataUrl.match(/^data:(image\/(?:png|jpe?g|gif));base64,(.+)$/i);
+  if (!match) return null;
+  const extension = match[1].toLowerCase().includes('png')
+    ? 'png'
+    : match[1].toLowerCase().includes('gif')
+      ? 'gif'
+      : 'jpeg';
+  return { base64: dataUrl, extension };
+}
+
+function addSection(sheet, title) {
+  const row = sheet.addRow([title]);
+  const rowNumber = row.number;
+  sheet.mergeCells(`A${rowNumber}:D${rowNumber}`);
+  row.height = 24;
+  sheet.getCell(`A${rowNumber}`).style = styles.section;
+}
+
+function addKeyValueRows(sheet, rows) {
+  for (const [label, value] of rows) {
+    const row = sheet.addRow([label, value]);
+    const rowNumber = row.number;
+    if (sheet.columnCount >= 4) sheet.mergeCells(`B${rowNumber}:D${rowNumber}`);
+    sheet.getCell(`A${rowNumber}`).style = styles.field;
+    sheet.getCell(`B${rowNumber}`).style = styles.value;
+    row.height = estimateRowHeight(value);
+  }
+}
+
+function styleHeaderRow(sheet, rowNumber) {
+  const row = sheet.getRow(rowNumber);
+  row.height = 30;
+  row.eachCell((cell) => {
+    cell.style = styles.header;
+  });
+}
+
+function styleRange(sheet, startRow, endRow, startCol, endCol, style) {
+  for (let row = startRow; row <= endRow; row += 1) {
+    for (let col = startCol; col <= endCol; col += 1) {
+      sheet.getCell(row, col).style = style;
+    }
+  }
+}
+
+function finalizeSheet(sheet) {
+  sheet.eachRow((row) => {
+    row.eachCell((cell) => {
+      cell.border = borderStyle;
+      cell.alignment = cell.alignment || bodyAlignment;
+    });
+  });
+}
+
+function bulletText(items) {
+  return normalizeArray(items).map((item) => `• ${item}`).join('\n');
+}
+
+function estimateRowHeight(value) {
+  const text = String(value ?? '');
+  const lineCount = Math.max(1, text.split(/\r?\n/).length);
+  const lengthFactor = Math.ceil(text.length / 70);
+  return Math.min(120, Math.max(24, (lineCount + lengthFactor) * 18));
+}
+
+function formatDisplayDate(value) {
+  if (!value) return '';
+  return new Date(value).toLocaleString('zh-CN', { hour12: false });
 }
 
 function safeFileName(value) {
@@ -510,6 +682,57 @@ function formatDateForFile(value) {
   const date = new Date(value || Date.now());
   return date.toISOString().slice(0, 10);
 }
+
+const bodyAlignment = { vertical: 'middle', horizontal: 'left', wrapText: true };
+const borderStyle = {
+  top: { style: 'thin', color: { argb: 'D9E2EF' } },
+  left: { style: 'thin', color: { argb: 'D9E2EF' } },
+  bottom: { style: 'thin', color: { argb: 'D9E2EF' } },
+  right: { style: 'thin', color: { argb: 'D9E2EF' } }
+};
+const styles = {
+  title: {
+    font: { bold: true, size: 16, color: { argb: 'FFFFFF' } },
+    alignment: { vertical: 'middle', horizontal: 'center', wrapText: true },
+    fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: '1F4E79' } },
+    border: borderStyle
+  },
+  section: {
+    font: { bold: true, color: { argb: 'FFFFFF' } },
+    alignment: { vertical: 'middle', horizontal: 'center', wrapText: true },
+    fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: '5B9BD5' } },
+    border: borderStyle
+  },
+  header: {
+    font: { bold: true, color: { argb: 'FFFFFF' } },
+    alignment: { vertical: 'middle', horizontal: 'center', wrapText: true },
+    fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: '4472C4' } },
+    border: borderStyle
+  },
+  field: {
+    font: { bold: true, color: { argb: '1F2937' } },
+    alignment: bodyAlignment,
+    fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'DDEBF7' } },
+    border: borderStyle
+  },
+  value: {
+    alignment: bodyAlignment,
+    fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'F8FBFF' } },
+    border: borderStyle
+  },
+  metric: {
+    font: { bold: true, color: { argb: '1F2937' } },
+    alignment: { vertical: 'middle', horizontal: 'center', wrapText: true },
+    fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'E2F0D9' } },
+    border: borderStyle
+  },
+  metricValue: {
+    font: { bold: true, size: 14, color: { argb: '1F2937' } },
+    alignment: { vertical: 'middle', horizontal: 'center', wrapText: true },
+    fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FCE4D6' } },
+    border: borderStyle
+  }
+};
 
 function extractJson(text) {
   const trimmed = String(text || '').trim();

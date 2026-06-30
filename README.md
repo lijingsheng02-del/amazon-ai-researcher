@@ -6,7 +6,7 @@ The app is designed for internal research, product planning, listing strategy, a
 
 ## Current Version
 
-`v0.2.0`
+`v0.2.1`
 
 ## Key Features
 
@@ -18,7 +18,7 @@ The app is designed for internal research, product planning, listing strategy, a
   - **API Enhanced Mode**: uses an OpenAI-compatible chat completions API when configured.
 - Local project storage with SQLite.
 - Custom report names before generation and report renaming after generation.
-- Excel-compatible `.xls` export for finished reports.
+- Styled `.xlsx` export for finished reports, including embedded uploaded product images when the image format is Excel-compatible.
 - More visible research progress states during offline and API-enhanced generation.
 - Product image upload for report context.
 - Amazon product link and competitor link input.
