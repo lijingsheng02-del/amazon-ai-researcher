@@ -1020,11 +1020,11 @@ async function callPersonaBatch(product, selectedPersonas, settings, endpoint, r
     messages: [
       {
         role: 'system',
-        content: 'You are a strict market research analyst. Return valid JSON only.'
+        content: 'You are a strict Amazon product research analyst. Be skeptical like real shoppers. Return valid JSON only.'
       },
       {
         role: 'user',
-        content: buildPersonaBatchPrompt(product, selectedPersonas, researchPlan)
+        content: buildPersonaBatchContent(product, selectedPersonas, researchPlan, true)
       }
     ]
   };
@@ -1032,9 +1032,31 @@ async function callPersonaBatch(product, selectedPersonas, settings, endpoint, r
   let response = await postChatCompletions(endpoint, settings.apiKey, body);
   let responseText = await response.text();
 
+  if (!response.ok && shouldRetryWithoutImages(response.status, responseText)) {
+    const textOnlyBody = {
+      ...body,
+      messages: [
+        body.messages[0],
+        {
+          role: 'user',
+          content: buildPersonaBatchContent(product, selectedPersonas, researchPlan, false)
+        }
+      ]
+    };
+    response = await postChatCompletions(endpoint, settings.apiKey, textOnlyBody);
+    responseText = await response.text();
+  }
+
   if (!response.ok && shouldRetryWithoutResponseFormat(response.status, responseText)) {
     const fallbackBody = { ...body, max_tokens: 10000 };
     delete fallbackBody.response_format;
+    fallbackBody.messages = [
+      body.messages[0],
+      {
+        role: 'user',
+        content: buildPersonaBatchContent(product, selectedPersonas, researchPlan, false)
+      }
+    ];
     response = await postChatCompletions(endpoint, settings.apiKey, fallbackBody);
     responseText = await response.text();
   }
@@ -1052,7 +1074,36 @@ async function callPersonaBatch(product, selectedPersonas, settings, endpoint, r
   return normalizePayload(extractJson(content));
 }
 
-function buildPersonaBatchPrompt(product, selectedPersonas, researchPlan) {
+function buildPersonaBatchContent(product, selectedPersonas, researchPlan, includeImages) {
+  const prompt = buildPersonaBatchPrompt(product, selectedPersonas, researchPlan, includeImages);
+  const imageParts = includeImages ? buildVisionImageParts(product) : [];
+  if (!imageParts.length) return prompt;
+  return [
+    { type: 'text', text: prompt },
+    ...imageParts
+  ];
+}
+
+function buildVisionImageParts(product) {
+  const images = Array.isArray(product.images) ? product.images : [];
+  return images
+    .slice(0, 9)
+    .map((image, index) => {
+      const dataUrl = String(image.dataUrl || '');
+      if (!/^data:image\/(png|jpe?g|webp|gif);base64,/i.test(dataUrl)) return null;
+      return {
+        type: 'image_url',
+        image_url: {
+          url: dataUrl
+        },
+        _image_index: index + 1
+      };
+    })
+    .filter(Boolean)
+    .map(({ _image_index, ...part }) => part);
+}
+
+function buildPersonaBatchPrompt(product, selectedPersonas, researchPlan, includeImages = false) {
   return `You are running a simulated buyer research exercise for Amazon operators.
 
 Hard boundary:
@@ -1060,9 +1111,15 @@ Hard boundary:
 - Do not write fake Amazon reviews.
 - Do not claim these are real consumers or real survey results.
 - Treat each persona as a market-research hypothesis generator.
+- The persona must behave like a skeptical real Amazon shopper, not a polite evaluator.
+- If images look cheap, inconsistent, blurry, low-trust, mismatched, over-edited, or fail to prove the claims, reduce purchase_intent_score.
+- Do not give the product benefit of the doubt when images and claims conflict.
 
 Product input:
 ${JSON.stringify(buildProductPromptPayload(product), null, 2)}
+
+Image inspection mode:
+${includeImages ? 'Uploaded product images are attached after this text. Inspect the actual pixels. Compare product photos, dimension images, material/detail images, and lifestyle scenes. If a dimension image seems inconsistent with product photos, call it out clearly.' : 'Actual image pixels are NOT available in this request. You must say image inspection is limited and judge only from image metadata and product text.'}
 
 Category research template:
 ${JSON.stringify(researchPlan?.template || detectCategoryTemplate(product), null, 2)}
@@ -1099,6 +1156,8 @@ Rules:
 - confidence_score must be 0 to 1.
 - image_purchase_impact must explain how the uploaded/listing images increase or decrease this persona's purchase intent.
 - image_consistency_feedback must evaluate whether images, selling points, size/material claims, and usage scenario feel consistent or create trust gaps.
+- Specifically check whether dimension images, scale references, product photos, material closeups, and lifestyle scenes appear to describe the same product.
+- Specifically mention poor image quality, low resolution, visual clutter, unreadable text, cheap rendering, inconsistent colors, unrealistic proportions, or missing proof if present.
 - Be concrete and operational. Avoid generic praise.
 - Write in Simplified Chinese, but keep persona_id unchanged.`;
 }
@@ -1281,12 +1340,12 @@ function buildImagePurchaseImpact(product, persona, positives, negatives) {
     return `当前没有图片证据，${persona.id} 会把购买意愿下调，因为无法确认 ${topPoint} 是否真实解决 ${topRisk}。`;
   }
   if (imageCount < 4) {
-    return `当前 ${imageCount} 张图只能提供初步信任，若没有尺寸、材质、场景和细节图，购买意愿仍会被 ${topRisk} 拖低。`;
+    return `离线规则只能基于图片数量和文案判断。当前 ${imageCount} 张图只能提供初步信任，若没有尺寸、材质、场景和细节图，购买意愿仍会被 ${topRisk} 拖低。`;
   }
   if (imageCount >= 8) {
-    return `图片数量充足，若主图、场景图、尺寸图和细节图表达一致，会明显提升该 persona 对 ${topPoint} 的信任和购买意愿。`;
+    return `离线规则无法识别图片像素。图片数量充足只是基础，只有主图、场景图、尺寸图和细节图表达一致，才会提升该 persona 对 ${topPoint} 的信任和购买意愿。`;
   }
-  return `图片数量基本够用，但必须让每张图各自承担任务：主图证明外观，尺寸图证明适配，细节图证明材质，场景图证明 ${topPoint} 的真实价值。`;
+  return `离线规则无法判断图片真实质量。图片数量基本够用，但必须让每张图各自承担任务：主图证明外观，尺寸图证明适配，细节图证明材质，场景图证明 ${topPoint} 的真实价值。`;
 }
 
 function buildImageConsistencyFeedback(product, persona, positives, negatives) {
@@ -1297,9 +1356,9 @@ function buildImageConsistencyFeedback(product, persona, positives, negatives) {
     return '图片链路为空，卖点、尺寸、材质和使用场景之间没有视觉证据闭环。';
   }
   if (imageCount < 6) {
-    return `图片需要补齐一致性：如果文案说“${point}”，图片必须同步证明；如果存在“${weakness}”，也要用细节图提前管理预期。`;
+    return `离线规则无法发现图片内容矛盾，只能提示检查方向：如果文案说“${point}”，图片必须同步证明；如果存在“${weakness}”，也要用细节图提前管理预期。`;
   }
-  return `需要检查 9 图逻辑是否一致：主图吸引点击，副图逐一证明 ${point}，尺寸/材质/安装/场景图不能互相矛盾，也不能只做氛围图。`;
+  return `需要人工或视觉模型检查 9 图逻辑是否一致：主图吸引点击，副图逐一证明 ${point}，尺寸/材质/安装/场景图不能互相矛盾，也不能只做氛围图。`;
 }
 
 function buildListingSuggestion(product, persona) {
@@ -1405,6 +1464,11 @@ function buildChatCompletionsEndpoint(baseUrl) {
 function shouldRetryWithoutResponseFormat(status, body) {
   if (status !== 400 && status !== 422) return false;
   return /response_format|json_object|unsupported|not support|invalid/i.test(body);
+}
+
+function shouldRetryWithoutImages(status, body) {
+  if (![400, 413, 415, 422].includes(status)) return false;
+  return /image|image_url|vision|multimodal|content.*array|unsupported|not support|payload|too large|invalid/i.test(body);
 }
 
 async function postChatCompletions(endpoint, apiKey, body) {

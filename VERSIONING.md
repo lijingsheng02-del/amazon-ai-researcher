@@ -8,8 +8,9 @@ This project uses SemVer-style versioning.
 - `0.2.1`: Reworked report export to styled `.xlsx` workbooks with better formatting and embedded uploaded product images where supported.
 - `0.3.0`: Increased product image uploads to 9 and added buyer-level image impact and image consistency evaluation to persona results, reports, and Excel export.
 - `0.3.1`: Fixed backward compatibility so older reports without newly added image feedback fields open normally instead of rendering a blank screen.
-- Patch versions such as `0.3.2`: bug fixes, copy fixes, small UI corrections, documentation updates, or compatibility fixes.
-- Minor versions such as `0.4.0`: new product capabilities, new report modules, new data integrations, or major workflow improvements.
+- `0.4.0`: Added vision-capable API image inspection for uploaded product images and made text-only fallback explicit when visual analysis is unavailable.
+- Patch versions such as `0.4.1`: bug fixes, copy fixes, small UI corrections, documentation updates, or compatibility fixes.
+- Minor versions such as `0.5.0`: new product capabilities, new report modules, new data integrations, or major workflow improvements.
 - Major versions such as `1.0.0`: stable production release with validated core workflow and migration-safe local data handling.
 
 Do not commit local API keys, user SQLite databases, generated build output, or packaged desktop binaries.

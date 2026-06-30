@@ -6,7 +6,7 @@ The app is designed for internal research, product planning, listing strategy, a
 
 ## Current Version
 
-`v0.3.1`
+`v0.4.0`
 
 ## Key Features
 
@@ -22,6 +22,8 @@ The app is designed for internal research, product planning, listing strategy, a
 - More visible research progress states during offline and API-enhanced generation.
 - Product image upload for report context, up to 9 images per product.
 - Buyer-level image evaluation, including image impact on purchase intent and consistency between images, selling points, size/material claims, and usage scenarios.
+- API Enhanced Mode can send uploaded product images to vision-capable OpenAI-compatible models for stricter visual inspection.
+- If the configured API does not support image input, the app falls back to text-only analysis instead of pretending it inspected the images.
 - Amazon product link and competitor link input.
 - Operator-facing report modules covering:
   - Purchase intent
