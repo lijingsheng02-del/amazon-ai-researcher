@@ -3,7 +3,8 @@
 This project uses SemVer-style versioning.
 
 - `0.1.0`: MVP baseline. Local Electron app, SQLite persistence, 100 persona pool, offline rules, API-enhanced mode, category templates, dynamic persona sampling, product image upload, and report history.
-- Patch versions such as `0.1.1`: bug fixes, copy fixes, small UI corrections, or compatibility fixes.
+- `0.1.1`: README rewritten for GitHub project presentation and usage guidance.
+- Patch versions such as `0.1.2`: bug fixes, copy fixes, small UI corrections, documentation updates, or compatibility fixes.
 - Minor versions such as `0.2.0`: new product capabilities, new report modules, new data integrations, or major workflow improvements.
 - Major versions such as `1.0.0`: stable production release with validated core workflow and migration-safe local data handling.
 
