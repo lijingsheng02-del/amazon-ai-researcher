@@ -98,6 +98,7 @@ type ReportSummary = {
   main_image_suggestions: string[]
   aplus_image_suggestions: string[]
   image_feedback_summary: string[]
+  competitor_asin_comparison?: string[]
   qa_suggestions: string[]
   final_operator_summary: string
   metadata?: ResearchMetadata
@@ -241,6 +242,10 @@ function parseLinkLines(value: string) {
     .map((line) => line.trim())
     .filter(Boolean)
     .map((url) => ({ url, asin: extractAsin(url) }))
+}
+
+function uniqueAsinsFromLinks(links: Array<{ asin: string }>) {
+  return [...new Set(links.map((item) => item.asin).filter(Boolean))]
 }
 
 const personaZh: Record<string, string> = {
@@ -975,6 +980,7 @@ export default function App() {
   function renderApiInput() {
     const productAsin = extractAsin(product.productUrl)
     const competitorLinks = parseLinkLines(product.competitorUrls)
+    const competitorAsins = uniqueAsinsFromLinks(competitorLinks)
 
     return (
       <main className="content">
@@ -1009,6 +1015,14 @@ export default function App() {
               <strong>{tr('竞品链接', 'Competitor URLs')}</strong>
               <span>{competitorLinks.length ? tr(`${competitorLinks.length} 条，已识别 ${competitorLinks.filter((item) => item.asin).length} 个 ASIN`, `${competitorLinks.length} links, ${competitorLinks.filter((item) => item.asin).length} ASINs detected`) : tr('等待粘贴竞品链接', 'Waiting for competitor URLs')}</span>
             </div>
+            {competitorAsins.length > 0 && (
+              <div>
+                <strong>竞品 ASIN</strong>
+                <div className="tag-row compact-tags">
+                  {competitorAsins.map((asin) => <span key={asin}>{asin}</span>)}
+                </div>
+              </div>
+            )}
           </div>
         </Section>
 
@@ -1021,7 +1035,7 @@ export default function App() {
           </div>
         </Section>
 
-        {renderImageSection(tr('参考图片', 'Reference images'), tr('上传产品图、主图草稿或竞品参考图。API 模式下只会发送图片摘要，不直接发送 base64。', 'Upload product images, main-image drafts, or competitor references. API mode sends image summaries, not base64 data.'))}
+        {renderImageSection(tr('参考图片', 'Reference images'), tr('上传产品图、主图草稿或竞品参考图。API 模式会尝试把图片交给支持视觉的模型；不支持时退回文本分析。', 'Upload product images, main-image drafts, or competitor references. API mode attempts vision-model inspection and falls back to text-only analysis when unsupported.'))}
       </main>
     )
   }
@@ -1209,6 +1223,7 @@ export default function App() {
           <Section title={tr('主图建议', 'Main image suggestions')}><ListBlock items={summary.main_image_suggestions} /></Section>
           <Section title={tr('A+ 图片建议', 'A+ image suggestions')}><ListBlock items={summary.aplus_image_suggestions} /></Section>
           <Section title="买家图片评价"><ListBlock items={summary.image_feedback_summary} /></Section>
+          <Section title="竞品 ASIN 对比"><ListBlock items={summary.competitor_asin_comparison} /></Section>
           <Section title={tr('QA 问题预测', 'QA predictions')}><ListBlock items={summary.qa_suggestions} /></Section>
           <Section title={tr('运营结论', 'Operator summary')}><p className="paragraph strong">{summary.final_operator_summary}</p></Section>
         </div>

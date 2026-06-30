@@ -393,6 +393,7 @@ function buildExcelWorkbook(report) {
   addSummarySheet(workbook, report);
   addPersonaSheet(workbook, report);
   addProductInputSheet(workbook, report);
+  addCompetitorSheet(workbook, report);
   addImagesSheet(workbook, report);
 
   return workbook;
@@ -458,6 +459,7 @@ function addSummarySheet(workbook, report) {
     ['Main Image Suggestions', bulletText(summary.main_image_suggestions)],
     ['A+ Image Suggestions', bulletText(summary.aplus_image_suggestions)],
     ['Buyer Image Feedback', bulletText(summary.image_feedback_summary)],
+    ['Competitor ASIN Comparison', bulletText(summary.competitor_asin_comparison)],
     ['QA Suggestions', bulletText(summary.qa_suggestions)]
   ]);
 
@@ -544,6 +546,52 @@ function addProductInputSheet(workbook, report) {
     ['Competitor Notes', product.competitors || ''],
     ['Known Weaknesses', product.knownWeaknesses || ''],
     ['Image Count', images.length]
+  ]);
+  finalizeSheet(sheet);
+}
+
+function addCompetitorSheet(workbook, report) {
+  const product = report.product || {};
+  const competitorLinks = buildCompetitorAsinInputs(product);
+  const summary = report.summary || {};
+  const sheet = workbook.addWorksheet('Competitor ASINs', {
+    views: [{ state: 'frozen', ySplit: 1 }]
+  });
+  sheet.columns = [
+    { key: 'index', width: 10 },
+    { key: 'asin', width: 18 },
+    { key: 'domain', width: 26 },
+    { key: 'type', width: 18 },
+    { key: 'source', width: 64 }
+  ];
+  sheet.mergeCells('A1:E1');
+  sheet.getCell('A1').value = 'Competitor ASIN Comparison';
+  sheet.getCell('A1').style = styles.title;
+  sheet.getRow(1).height = 32;
+
+  sheet.addRow(['#', 'ASIN', 'Domain', 'Type', 'Source']);
+  styleHeaderRow(sheet, 2);
+
+  if (competitorLinks.length) {
+    for (const item of competitorLinks) {
+      const row = sheet.addRow([item.index, item.asin || 'Not detected', item.domain || '', item.type || '', item.raw || '']);
+      row.eachCell((cell) => {
+        cell.style = styles.value;
+      });
+      row.height = estimateRowHeight(item.raw || '');
+    }
+  } else {
+    const row = sheet.addRow(['', 'No competitor ASINs supplied', '', '', '']);
+    row.eachCell((cell) => {
+      cell.style = styles.value;
+    });
+  }
+
+  addSection(sheet, 'Comparison Notes');
+  addKeyValueRows(sheet, [
+    ['Module Boundary', 'This module compares supplied competitor ASINs, links, and operator notes only. It does not fetch live Amazon price, rating, review count, BSR, inventory, or ad data.'],
+    ['Competitor Notes', product.competitors || product.researchNotes || ''],
+    ['Report Output', bulletText(summary.competitor_asin_comparison)]
   ]);
   finalizeSheet(sheet);
 }
@@ -788,6 +836,7 @@ function normalizePayload(raw) {
       main_image_suggestions: normalizeArray(summary.main_image_suggestions),
       aplus_image_suggestions: normalizeArray(summary.aplus_image_suggestions),
       image_feedback_summary: normalizeArray(summary.image_feedback_summary),
+      competitor_asin_comparison: normalizeArray(summary.competitor_asin_comparison),
       qa_suggestions: normalizeArray(summary.qa_suggestions),
       final_operator_summary: String(summary.final_operator_summary || '')
     },
@@ -1118,6 +1167,11 @@ Hard boundary:
 Product input:
 ${JSON.stringify(buildProductPromptPayload(product), null, 2)}
 
+Competitor ASIN comparison boundary:
+- Competitor links and ASINs are identifiers and operator-supplied context only.
+- Do not claim live Amazon price, rating, review count, BSR, inventory, or advertising data unless it is explicitly present in the product input.
+- Use competitor notes, provided ASINs, and attached reference images to judge differentiation gaps, image proof gaps, price positioning risk, and objections.
+
 Image inspection mode:
 ${includeImages ? 'Uploaded product images are attached after this text. Inspect the actual pixels. Compare product photos, dimension images, material/detail images, and lifestyle scenes. If a dimension image seems inconsistent with product photos, call it out clearly.' : 'Actual image pixels are NOT available in this request. You must say image inspection is limited and judge only from image metadata and product text.'}
 
@@ -1173,7 +1227,7 @@ function chunkArray(items, size) {
 function buildProductPromptPayload(product) {
   const images = Array.isArray(product.images) ? product.images : [];
   const productLink = parseAmazonUrl(product.productUrl);
-  const competitorLinks = parseAmazonLinks(product.competitorUrls);
+  const competitorLinks = buildCompetitorAsinInputs(product);
   return {
     ...product,
     product_link_analysis: productLink,
@@ -1189,8 +1243,10 @@ function buildProductPromptPayload(product) {
 }
 
 function parseAmazonLinks(value) {
-  return String(value || '')
-    .split(/\r?\n|[ ,，]+/)
+  const normalized = String(value || '').trim();
+  if (!normalized) return [];
+  return normalized
+    .split(/[\s,;，；]+/)
     .map((item) => item.trim())
     .filter(Boolean)
     .map(parseAmazonUrl)
@@ -1200,6 +1256,9 @@ function parseAmazonLinks(value) {
 function parseAmazonUrl(value) {
   const raw = String(value || '').trim();
   if (!raw) return null;
+  if (/^[A-Z0-9]{10}$/i.test(raw)) {
+    return { raw, valid: true, asin: raw.toUpperCase(), domain: '', path: '', type: 'asin' };
+  }
   const withProtocol = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
   let url;
   try {
@@ -1207,7 +1266,7 @@ function parseAmazonUrl(value) {
   } catch {
     return { raw, valid: false, asin: extractAsin(raw), domain: '', path: '', type: 'invalid-url' };
   }
-  const asin = extractAsin(`${url.pathname} ${url.search}`);
+  const asin = extractAsin(`${raw} ${url.pathname} ${url.search}`);
   return {
     raw,
     valid: true,
@@ -1232,6 +1291,28 @@ function extractAsin(value) {
     if (match) return match[1].toUpperCase();
   }
   return '';
+}
+
+function buildCompetitorAsinInputs(product) {
+  const links = parseAmazonLinks(product?.competitorUrls || '');
+  const seen = new Set();
+  const unique = [];
+  for (const [index, link] of links.entries()) {
+    const key = link.asin || link.raw;
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    unique.push({
+      index: unique.length + 1,
+      raw: link.raw,
+      valid: link.valid,
+      asin: link.asin,
+      domain: link.domain,
+      path: link.path,
+      type: link.type || (link.asin ? 'amazon-product' : 'amazon-link'),
+      source_index: index + 1
+    });
+  }
+  return unique.slice(0, 20);
 }
 
 function buildRuleBasedPersonaResults(product, selectedPersonas) {
@@ -1426,6 +1507,7 @@ function buildLocalSummary(product, personaResults, selectedPersonas, researchPl
         ? '图片数量已经接近完整 9 图链路，下一步重点不是继续加图，而是检查主图、尺寸图、材质图、场景图、安装图和对比图是否各自承担明确任务。'
         : `当前只有 ${imageCount} 张图片，建议补足到 9 张：主图、尺寸图、材质细节、场景图、功能步骤、安装/收纳、痛点对比、竞品差异、包装/配件。`
     ]),
+    competitor_asin_comparison: buildCompetitorAsinComparison(product, personaResults, template),
     qa_suggestions: [
       ...template.operator_questions,
       '尺寸是否适合我的空间？',
@@ -1452,6 +1534,43 @@ function buildPriceSummary(price, personaResults) {
     return `${price} 对样本池中的高价格敏感人群有明显压力，需要用套装价值、耐用性证明、促销或对比图解释。`;
   }
   return `${price} 的阻力可控，但页面必须说明材质、尺寸、功能和竞品差异，否则中等价格敏感用户仍会犹豫。`;
+}
+
+function buildCompetitorAsinComparison(product, personaResults, template) {
+  const competitors = buildCompetitorAsinInputs(product);
+  const competitorNotes = splitInput(`${product.competitors || ''}\n${product.researchNotes || ''}`);
+  const highRiskCount = personaResults.filter((item) => item.purchase_intent_score <= 2).length;
+  const asins = competitors.map((item) => item.asin).filter(Boolean);
+  const uniqueAsins = [...new Set(asins)];
+  const categoryName = template?.name || product.category || '当前类目';
+
+  if (!competitors.length) {
+    return [
+      '未提供竞品 ASIN 或竞品链接，当前报告只能基于自身产品信息做判断，不能形成有效竞品对比。',
+      '建议至少输入 3-5 个直接竞品 ASIN，并补充价格、评分、Review 数、主图差异和核心差评点。',
+      '在没有竞品数据源前，本软件不会猜测竞品价格、销量、评分或 BSR；这些字段需要后续接入 PA-API、Keepa 或稳定数据服务。'
+    ];
+  }
+
+  const items = [
+    `已识别 ${uniqueAsins.length} 个竞品 ASIN：${uniqueAsins.join(', ') || '部分链接未识别出 ASIN'}。当前模块只对你粘贴的 ASIN/链接和运营备注做结构化对比，不抓取亚马逊实时页面。`,
+    `${categoryName} 的对比重点应放在：价格带是否被证明、主图是否更可信、尺寸/材质证据是否更清楚、差评风险是否被提前解释、核心卖点是否比竞品更具体。`,
+    product.price
+      ? `你的目标价为 ${product.price}。如果竞品价格低于该价位，页面必须用材质、尺寸、功能、配件、保修或场景价值解释溢价；否则高价格敏感 persona 会优先流失。`
+      : '当前未填写目标价，无法判断相对竞品价格压力。竞品 ASIN 对比必须补价格带，否则对运营决策帮助很有限。',
+    highRiskCount
+      ? `有 ${highRiskCount} 个 persona 给出低购买意向，竞品对比图应优先回应这些阻力，而不是只做“我们更好”的空泛表格。`
+      : '低购买意向 persona 不多，但仍应做竞品差异图，防止用户在同价位列表页里只按主图和价格快速跳走。',
+    '建议新增一张竞品对比图：列出你的产品、3 个核心竞品 ASIN、价格带、尺寸/材质、关键卖点、主要差评风险和你能证明的差异点。'
+  ];
+
+  if (competitorNotes.length) {
+    items.push(`你提供的竞品备注可直接转成对比维度：${competitorNotes.slice(0, 4).join('；')}。`);
+  } else {
+    items.push('你没有补充竞品备注。只粘 ASIN 不够，至少要人工记录竞品低分评论、主图问题、价格和卖点结构。');
+  }
+
+  return collectTopItems(items);
 }
 
 function buildChatCompletionsEndpoint(baseUrl) {

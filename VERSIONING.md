@@ -10,6 +10,7 @@ This project uses SemVer-style versioning.
 - `0.3.1`: Fixed backward compatibility so older reports without newly added image feedback fields open normally instead of rendering a blank screen.
 - `0.4.0`: Added vision-capable API image inspection for uploaded product images and made text-only fallback explicit when visual analysis is unavailable.
 - `0.4.1`: Cleaned the README roadmap by removing completed export-format work from near-term priorities.
+- `0.5.0`: Added competitor ASIN comparison across API/offline research, report display, and Excel export while keeping the no-live-Amazon-data boundary explicit.
 - Patch versions such as `0.4.2`: bug fixes, copy fixes, small UI corrections, documentation updates, or compatibility fixes.
 - Minor versions such as `0.5.0`: new product capabilities, new report modules, new data integrations, or major workflow improvements.
 - Major versions such as `1.0.0`: stable production release with validated core workflow and migration-safe local data handling.

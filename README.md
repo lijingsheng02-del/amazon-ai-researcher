@@ -6,7 +6,7 @@ The app is designed for internal research, product planning, listing strategy, a
 
 ## Current Version
 
-`v0.4.1`
+`v0.5.0`
 
 ## Key Features
 
@@ -25,6 +25,8 @@ The app is designed for internal research, product planning, listing strategy, a
 - API Enhanced Mode can send uploaded product images to vision-capable OpenAI-compatible models for stricter visual inspection.
 - If the configured API does not support image input, the app falls back to text-only analysis instead of pretending it inspected the images.
 - Amazon product link and competitor link input.
+- Competitor ASIN comparison module based on supplied ASINs, competitor links, and operator notes.
+- Competitor ASINs are parsed into reports and Excel exports without pretending to fetch live Amazon marketplace data.
 - Operator-facing report modules covering:
   - Purchase intent
   - Positive buying drivers
@@ -35,6 +37,7 @@ The app is designed for internal research, product planning, listing strategy, a
   - Main image ideas
   - A+ content image ideas
   - Buyer image feedback
+  - Competitor ASIN comparison
   - Predicted customer Q&A
 
 ## Product Philosophy
@@ -152,7 +155,6 @@ Short rule:
 Near-term priorities:
 
 - Add legally and technically appropriate Amazon market signals.
-- Add competitor ASIN comparison modules.
 - Add keyword and pricing-band research inputs.
 - Improve historical report comparison.
 - Improve category-specific templates and persona weighting.
