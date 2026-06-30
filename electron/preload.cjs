@@ -7,6 +7,8 @@ contextBridge.exposeInMainWorld('researchApi', {
   listReports: (search) => ipcRenderer.invoke('reports:list', search),
   getReport: (reportId) => ipcRenderer.invoke('reports:get', reportId),
   deleteReport: (reportId) => ipcRenderer.invoke('reports:delete', reportId),
+  renameReport: (reportId, title) => ipcRenderer.invoke('reports:rename', reportId, title),
+  exportReportExcel: (reportId) => ipcRenderer.invoke('reports:exportExcel', reportId),
   onProgress: (callback) => {
     const listener = (_event, payload) => callback(payload);
     ipcRenderer.on('research:progress', listener);

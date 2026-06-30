@@ -7,6 +7,8 @@ import {
   CircleAlert,
   Clock3,
   Database,
+  Download,
+  Edit3,
   FileText,
   Home,
   Image as ImageIcon,
@@ -15,6 +17,7 @@ import {
   Plus,
   Search,
   Settings,
+  Save,
   Sparkles,
   Trash2,
   Upload,
@@ -27,6 +30,7 @@ type View = 'home' | 'offlineInput' | 'apiInput' | 'personas' | 'run' | 'report'
 type Language = 'zh' | 'en'
 
 type ProductInput = {
+  reportTitle: string
   productUrl: string
   competitorUrls: string
   researchNotes: string
@@ -152,6 +156,7 @@ type ProgressState = {
 }
 
 const emptyProduct: ProductInput = {
+  reportTitle: '',
   productUrl: '',
   competitorUrls: '',
   researchNotes: '',
@@ -573,6 +578,8 @@ export default function App() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  const [editingReportTitle, setEditingReportTitle] = useState(false)
+  const [reportTitleDraft, setReportTitleDraft] = useState('')
 
   const tr = (zh: string, _en: string) => zh
   const pTr = (zh: string, en: string) => language === 'zh' ? zh : en
@@ -595,6 +602,11 @@ export default function App() {
       setProgress(payload)
     })
   }, [])
+
+  useEffect(() => {
+    setReportTitleDraft(activeReport?.title || '')
+    setEditingReportTitle(false)
+  }, [activeReport?.id, activeReport?.title])
 
   const completedReports = reports.length
   const averageIntent = useMemo(() => {
@@ -700,6 +712,7 @@ export default function App() {
     setNotice('')
     setProgress({ stage: 'queued', progress: 4, activePersonaIds: [] })
     setView('run')
+    await new Promise((resolve) => setTimeout(resolve, 80))
 
     try {
       const result = await window.researchApi.runResearch(product, engineMode)
@@ -726,6 +739,42 @@ export default function App() {
     await window.researchApi.deleteReport(reportId)
     const nextReports = await refreshReports()
     if (activeReport?.id === reportId) setActiveReport(nextReports[0] || null)
+  }
+
+  async function saveReportTitle() {
+    if (!activeReport) return
+    const title = reportTitleDraft.trim()
+    if (!title) {
+      setError('报告名称不能为空。')
+      return
+    }
+    setBusy(true)
+    setError('')
+    try {
+      const updated = await window.researchApi.renameReport(activeReport.id, title)
+      setActiveReport(updated as Report)
+      await refreshReports('')
+      setEditingReportTitle(false)
+      setNotice('报告名称已更新。')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function exportActiveReportExcel() {
+    if (!activeReport) return
+    setBusy(true)
+    setError('')
+    try {
+      const result = await window.researchApi.exportReportExcel(activeReport.id)
+      if (!result.canceled) setNotice(`Excel 报告已导出：${result.filePath}`)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(false)
+    }
   }
 
   function renderHome() {
@@ -859,6 +908,7 @@ export default function App() {
 
         <Section title={tr('产品基础信息', 'Product basics')}>
           <div className="form-grid">
+            <Field label="报告名称（可选）" value={product.reportTitle} onChange={(value) => setProduct({ ...product, reportTitle: value })} placeholder="例如：梳妆台 85.99 美元首轮调研" />
             <Field label={tr('产品名称', 'Product name')} value={product.productName} onChange={(value) => setProduct({ ...product, productName: value })} placeholder={tr('例如：可折叠厨房收纳架', 'Example: folding kitchen storage rack')} />
             <Field label={tr('亚马逊类目', 'Amazon category')} value={product.category} onChange={(value) => setProduct({ ...product, category: value })} placeholder="Home & Kitchen / Storage" />
             <Field label={tr('目标售价', 'Target price')} value={product.price} onChange={(value) => setProduct({ ...product, price: value })} placeholder="$29.99" />
@@ -935,6 +985,7 @@ export default function App() {
 
         <Section title={tr('亚马逊链接', 'Amazon links')}>
           <div className="form-grid">
+            <Field label="报告名称（可选）" value={product.reportTitle} onChange={(value) => setProduct({ ...product, reportTitle: value })} placeholder="例如：竞品链接调研 - 梳妆台" />
             <Field label={tr('产品链接', 'Product URL')} value={product.productUrl} onChange={(value) => setProduct({ ...product, productUrl: value })} placeholder="https://www.amazon.com/dp/ASIN" />
             <Field label={tr('亚马逊类目', 'Amazon category')} value={product.category} onChange={(value) => setProduct({ ...product, category: value })} placeholder="Home & Kitchen / Vanities" />
             <Field label={tr('产品名称（可选）', 'Product name (optional)')} value={product.productName} onChange={(value) => setProduct({ ...product, productName: value })} placeholder={tr('链接无法提供标题时，用这里补充', 'Use this if the link does not provide a title')} />
@@ -1066,13 +1117,44 @@ export default function App() {
         <div className="page-head">
           <div>
             <p className="kicker">{tr('报告', 'Report')}</p>
-            <h1>{activeReport.title}</h1>
+            {editingReportTitle ? (
+              <div className="report-title-editor">
+                <input
+                  value={reportTitleDraft}
+                  onChange={(event) => setReportTitleDraft(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') saveReportTitle()
+                    if (event.key === 'Escape') {
+                      setReportTitleDraft(activeReport.title)
+                      setEditingReportTitle(false)
+                    }
+                  }}
+                  autoFocus
+                />
+                <button className="icon-button" onClick={saveReportTitle} disabled={busy} aria-label="保存报告名称">
+                  <Save size={16} />
+                </button>
+              </div>
+            ) : (
+              <div className="report-title-line">
+                <h1>{activeReport.title}</h1>
+                <button className="icon-button" onClick={() => setEditingReportTitle(true)} aria-label="修改报告名称">
+                  <Edit3 size={16} />
+                </button>
+              </div>
+            )}
             <p className="hero-copy">{activeReport.product.category} · {formatDate(activeReport.createdAt)}</p>
           </div>
-          <button className="ghost-button" onClick={() => setView(activeReport.product.productUrl ? 'apiInput' : 'offlineInput')}>
-            <Plus size={17} />
-            {tr('再做一次', 'Run again')}
-          </button>
+          <div className="report-actions">
+            <button className="ghost-button" onClick={exportActiveReportExcel} disabled={busy}>
+              <Download size={17} />
+              导出 Excel
+            </button>
+            <button className="ghost-button" onClick={() => setView(activeReport.product.productUrl ? 'apiInput' : 'offlineInput')}>
+              <Plus size={17} />
+              {tr('再做一次', 'Run again')}
+            </button>
+          </div>
         </div>
 
         <div className="grid gap-4 md:grid-cols-3">

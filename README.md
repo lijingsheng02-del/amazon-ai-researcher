@@ -6,17 +6,20 @@ The app is designed for internal research, product planning, listing strategy, a
 
 ## Current Version
 
-`v0.1.1`
+`v0.2.0`
 
 ## Key Features
 
 - Simulated buyer research for Amazon products, categories, and listing ideas.
 - Built-in pool of 100 virtual US consumer personas.
-- Dynamic persona selection based on product category and research context.
+- Dynamic persona selection based on product category and research context instead of blindly averaging all 100 personas.
 - Two research modes:
   - **Offline Rules Mode**: works without an external API key.
   - **API Enhanced Mode**: uses an OpenAI-compatible chat completions API when configured.
 - Local project storage with SQLite.
+- Custom report names before generation and report renaming after generation.
+- Excel-compatible `.xls` export for finished reports.
+- More visible research progress states during offline and API-enhanced generation.
 - Product image upload for report context.
 - Amazon product link and competitor link input.
 - Operator-facing report modules covering:
@@ -43,7 +46,7 @@ The output should be treated as research hypotheses, not verified market facts.
 3. The system selects matching personas from the 100-person virtual buyer pool.
 4. Offline rules or API-enhanced AI generates structured persona feedback.
 5. The app aggregates the results into an operator-focused report.
-6. Reports are saved locally for later comparison and review.
+6. Reports are saved locally for later comparison, renaming, review, and Excel export.
 
 ## Built-In Category Templates
 

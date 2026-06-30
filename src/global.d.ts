@@ -38,6 +38,8 @@ declare global {
       listReports: (search: string) => Promise<Array<unknown>>
       getReport: (reportId: number) => Promise<unknown>
       deleteReport: (reportId: number) => Promise<boolean>
+      renameReport: (reportId: number, title: string) => Promise<unknown>
+      exportReportExcel: (reportId: number) => Promise<{ canceled: boolean; filePath?: string }>
       onProgress: (callback: (payload: {
         stage: string
         progress: number

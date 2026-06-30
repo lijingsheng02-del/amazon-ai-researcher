@@ -351,6 +351,41 @@ h1 {
   font-size: 13px;
 }
 
+.report-title-line,
+.report-title-editor,
+.report-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.report-title-line h1 {
+  margin: 0;
+  min-width: 0;
+}
+
+.report-title-editor {
+  width: min(680px, 100%);
+}
+
+.report-title-editor input {
+  min-width: 0;
+  flex: 1;
+  height: 46px;
+  border: 1px solid oklch(0.82 0.02 255);
+  border-radius: 12px;
+  padding: 0 13px;
+  color: oklch(0.23 0.026 255);
+  background: oklch(1 0 0 / 0.86);
+  font-size: 22px;
+  font-weight: 760;
+}
+
+.report-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
 .score-pill,
 .tag {
   display: inline-flex;

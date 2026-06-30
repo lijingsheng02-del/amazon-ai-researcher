@@ -1,4 +1,5 @@
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain } = require('electron');
+const fs = require('fs');
 const path = require('path');
 const Database = require('better-sqlite3');
 
@@ -301,12 +302,25 @@ function getReport(reportId) {
 function createProject(product) {
   const createdAt = now();
   const parsedProductLink = parseAmazonUrl(product.productUrl);
-  const title = product.productName || parsedProductLink?.asin || 'Untitled product research';
+  const title = buildProjectTitle(product, parsedProductLink);
   const info = openDb().prepare(`
     INSERT INTO projects (title, product_json, created_at, updated_at)
     VALUES (?, ?, ?, ?)
   `).run(title, JSON.stringify(product), createdAt, createdAt);
   return { id: info.lastInsertRowid, title, product, createdAt, updatedAt: createdAt };
+}
+
+function buildProjectTitle(product, parsedProductLink = null) {
+  const manualTitle = String(product.reportTitle || '').trim();
+  if (manualTitle) return manualTitle;
+  const productName = String(product.productName || '').trim();
+  if (productName) return productName;
+  const category = String(product.category || '').trim();
+  const asin = parsedProductLink?.asin || parseAmazonUrl(product.productUrl)?.asin;
+  if (category && asin) return `${category} - ${asin}`;
+  if (asin) return `Amazon ASIN ${asin}`;
+  if (category) return `${category} product research`;
+  return 'Untitled product research';
 }
 
 function saveReport(projectId, payload) {
@@ -343,6 +357,158 @@ function deleteReport(reportId) {
   if (!row) return false;
   openDb().prepare('DELETE FROM reports WHERE id = ?').run(reportId);
   return true;
+}
+
+function renameReport(reportId, nextTitle) {
+  const cleanTitle = String(nextTitle || '').trim();
+  if (!cleanTitle) throw new Error('报告名称不能为空。');
+  const report = getReport(reportId);
+  if (!report) throw new Error('报告不存在。');
+  openDb().prepare('UPDATE projects SET title = ?, updated_at = ? WHERE id = ?').run(cleanTitle, now(), report.projectId);
+  return getReport(reportId);
+}
+
+async function exportReportExcel(event, reportId) {
+  const report = getReport(reportId);
+  if (!report) throw new Error('报告不存在。');
+  const win = BrowserWindow.fromWebContents(event.sender);
+  const defaultPath = `${safeFileName(report.title)}-${formatDateForFile(report.createdAt)}.xls`;
+  const result = await dialog.showSaveDialog(win, {
+    title: '导出 Excel 报告',
+    defaultPath,
+    filters: [{ name: 'Excel Workbook', extensions: ['xls'] }]
+  });
+  if (result.canceled || !result.filePath) return { canceled: true };
+  fs.writeFileSync(result.filePath, buildExcelXml(report), 'utf8');
+  return { canceled: false, filePath: result.filePath };
+}
+
+function buildExcelXml(report) {
+  const summary = report.summary || {};
+  const personaResults = report.personaResults || [];
+  const product = report.product || {};
+  const metadata = summary.metadata || {};
+  const sheets = [
+    {
+      name: 'Summary',
+      rows: [
+        ['Report Title', report.title],
+        ['Created At', report.createdAt],
+        ['Product Name', product.productName || ''],
+        ['Category', product.category || ''],
+        ['Price', product.price || ''],
+        ['Overall Purchase Intent', summary.overall_purchase_intent || ''],
+        ['Likely Buyers', personaResults.filter((item) => item.likely_to_buy).length],
+        ['Sample Size', personaResults.length],
+        ['Category Template', metadata.category_template?.name || ''],
+        ['Top Positive Points', normalizeArray(summary.top_positive_points).join('\n')],
+        ['Top Negative Risks', normalizeArray(summary.top_negative_risks).join('\n')],
+        ['Best Target Customers', normalizeArray(summary.best_target_customers).join('\n')],
+        ['Weak Target Customers', normalizeArray(summary.weak_target_customers).join('\n')],
+        ['Price Feedback', summary.price_sensitivity_summary || ''],
+        ['Product Improvements', normalizeArray(summary.product_optimization_suggestions).join('\n')],
+        ['Listing Title Direction', summary.listing_title_direction || ''],
+        ['Bullet Direction', normalizeArray(summary.bullet_points_direction).join('\n')],
+        ['Main Image Suggestions', normalizeArray(summary.main_image_suggestions).join('\n')],
+        ['A+ Image Suggestions', normalizeArray(summary.aplus_image_suggestions).join('\n')],
+        ['QA Suggestions', normalizeArray(summary.qa_suggestions).join('\n')],
+        ['Operator Summary', summary.final_operator_summary || '']
+      ]
+    },
+    {
+      name: 'Persona Results',
+      rows: [
+        ['Persona ID', 'Intent Score', 'Likely To Buy', 'Positive Points', 'Negative Points', 'Price Reaction', 'Usage Scenario', 'Main Objection', 'Bad Review Risk', 'Suggested Improvement', 'Image Expectation', 'Listing Copy Suggestion', 'Confidence'],
+        ...personaResults.map((item) => [
+          item.persona_id,
+          item.purchase_intent_score,
+          item.likely_to_buy ? 'TRUE' : 'FALSE',
+          normalizeArray(item.positive_points).join('\n'),
+          normalizeArray(item.negative_points).join('\n'),
+          item.price_reaction,
+          item.usage_scenario,
+          item.main_objection,
+          item.possible_bad_review_reason,
+          item.suggested_improvement,
+          item.image_expectation,
+          item.listing_copy_suggestion,
+          item.confidence_score
+        ])
+      ]
+    },
+    {
+      name: 'Product Input',
+      rows: [
+        ['Field', 'Value'],
+        ['Report Title', report.title],
+        ['Product URL', product.productUrl || ''],
+        ['Competitor URLs', product.competitorUrls || ''],
+        ['Research Notes', product.researchNotes || ''],
+        ['Product Name', product.productName || ''],
+        ['Category', product.category || ''],
+        ['Price', product.price || ''],
+        ['Dimensions', product.dimensions || ''],
+        ['Material', product.material || ''],
+        ['Selling Points', product.sellingPoints || ''],
+        ['Target Audience', product.targetAudience || ''],
+        ['Competitor Notes', product.competitors || ''],
+        ['Known Weaknesses', product.knownWeaknesses || ''],
+        ['Image Count', Array.isArray(product.images) ? product.images.length : 0]
+      ]
+    }
+  ];
+
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+  xmlns:o="urn:schemas-microsoft-com:office:office"
+  xmlns:x="urn:schemas-microsoft-com:office:excel"
+  xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
+  <Styles>
+    <Style ss:ID="Header"><Font ss:Bold="1"/><Interior ss:Color="#EAF2FF" ss:Pattern="Solid"/></Style>
+    <Style ss:ID="Wrap"><Alignment ss:Vertical="Top" ss:WrapText="1"/></Style>
+  </Styles>
+${sheets.map(buildWorksheetXml).join('\n')}
+</Workbook>`;
+}
+
+function buildWorksheetXml(sheet) {
+  return `  <Worksheet ss:Name="${xmlEscape(sheet.name)}">
+    <Table>
+${sheet.rows.map((row, rowIndex) => `      <Row>${row.map((cell) => buildCellXml(cell, rowIndex === 0 && sheet.rows[0].length > 2)).join('')}</Row>`).join('\n')}
+    </Table>
+  </Worksheet>`;
+}
+
+function buildCellXml(value, isHeader) {
+  const type = typeof value === 'number' && Number.isFinite(value) ? 'Number' : 'String';
+  const style = isHeader ? ' ss:StyleID="Header"' : ' ss:StyleID="Wrap"';
+  return `<Cell${style}><Data ss:Type="${type}">${xmlEscape(value)}</Data></Cell>`;
+}
+
+function xmlEscape(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
+function safeFileName(value) {
+  return String(value || 'amazon-research-report')
+    .replace(/[<>:"/\\|?*]/g, '-')
+    .split('')
+    .filter((char) => char.charCodeAt(0) >= 32)
+    .join('')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 80) || 'amazon-research-report';
+}
+
+function formatDateForFile(value) {
+  const date = new Date(value || Date.now());
+  return date.toISOString().slice(0, 10);
 }
 
 function extractJson(text) {
@@ -561,7 +727,7 @@ function attachResearchMetadata(payload, researchPlan, extra = {}) {
   };
 }
 
-async function callAiResearch(product, selectedPersonas, settings, researchPlan) {
+async function callAiResearch(product, selectedPersonas, settings, researchPlan, onProgress) {
   if (!settings.apiKey) {
     throw new Error('请先在 API 设置中保存 AI API Key。');
   }
@@ -569,7 +735,12 @@ async function callAiResearch(product, selectedPersonas, settings, researchPlan)
   const chunks = chunkArray(selectedPersonas, 4);
   const personaResults = [];
 
-  for (const group of chunks) {
+  for (const [index, group] of chunks.entries()) {
+    onProgress?.({
+      stage: 'calling_ai',
+      progress: Math.min(78, 24 + Math.round((index / Math.max(chunks.length, 1)) * 54)),
+      activePersonaIds: group.map((persona) => persona.id)
+    });
     try {
       const payload = await callPersonaBatch(product, group, settings, endpoint, researchPlan);
       personaResults.push(...payload.persona_results);
@@ -589,6 +760,10 @@ async function callAiResearch(product, selectedPersonas, settings, researchPlan)
     }
   });
   return attachResearchMetadata(payload, researchPlan);
+}
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function runOfflineResearch(product, selectedPersonas, researchPlan) {
@@ -1013,6 +1188,8 @@ ipcMain.handle('settings:save', (_event, settings) => saveSettings(settings));
 ipcMain.handle('reports:list', (_event, search) => listReports(search || ''));
 ipcMain.handle('reports:get', (_event, reportId) => getReport(reportId));
 ipcMain.handle('reports:delete', (_event, reportId) => deleteReport(reportId));
+ipcMain.handle('reports:rename', (_event, reportId, title) => renameReport(reportId, title));
+ipcMain.handle('reports:exportExcel', (event, reportId) => exportReportExcel(event, reportId));
 
 ipcMain.handle('research:run', async (event, request) => {
   const product = request?.product || request;
@@ -1021,29 +1198,37 @@ ipcMain.handle('research:run', async (event, request) => {
   const requestedEngineMode = request?.engineMode || settings.engineMode;
   const researchPlan = createResearchPlan(product, personaPool, requestedEngineMode);
   const selectedPersonas = researchPlan.selectedPersonas;
-  event.sender.send('research:progress', { stage: 'queued', progress: 8, activePersonaIds: selectedPersonas.slice(0, 4).map((p) => p.id) });
+  const sendProgress = (payload) => event.sender.send('research:progress', payload);
+  sendProgress({ stage: 'queued', progress: 8, activePersonaIds: selectedPersonas.slice(0, 4).map((p) => p.id) });
   const project = createProject(product);
   const useApi = requestedEngineMode === 'api-enhanced' && settings.apiKey;
-  event.sender.send('research:progress', {
+  await delay(160);
+  sendProgress({
     stage: useApi ? 'calling_ai' : 'offline_rules',
     progress: 22,
-    activePersonaIds: selectedPersonas.map((p) => p.id)
+    activePersonaIds: selectedPersonas.slice(0, 12).map((p) => p.id)
   });
   let payload;
   if (useApi) {
     try {
-      payload = await callAiResearch(product, selectedPersonas, settings, researchPlan);
+      payload = await callAiResearch(product, selectedPersonas, settings, researchPlan, sendProgress);
     } catch (error) {
       console.warn(`API enhanced research failed, using offline rules: ${error.message}`);
+      sendProgress({ stage: 'offline_rules', progress: 58, activePersonaIds: selectedPersonas.slice(0, 16).map((p) => p.id) });
+      await delay(180);
       payload = runOfflineResearch(product, selectedPersonas, researchPlan);
       payload = attachResearchMetadata(payload, researchPlan, { engine: 'offline-rules-after-api-failure' });
     }
   } else {
+    await delay(260);
+    sendProgress({ stage: 'offline_rules', progress: 58, activePersonaIds: selectedPersonas.slice(12, 28).map((p) => p.id) });
+    await delay(180);
     payload = runOfflineResearch(product, selectedPersonas, researchPlan);
   }
-  event.sender.send('research:progress', { stage: 'saving', progress: 86, activePersonaIds: payload.persona_results.map((p) => p.persona_id) });
+  sendProgress({ stage: 'saving', progress: 86, activePersonaIds: payload.persona_results.slice(0, 18).map((p) => p.persona_id) });
   const report = saveReport(project.id, payload);
   saveTrainingExample(project.id, product, payload);
-  event.sender.send('research:progress', { stage: 'done', progress: 100, activePersonaIds: [] });
+  await delay(140);
+  sendProgress({ stage: 'done', progress: 100, activePersonaIds: [] });
   return { project, report };
 });
