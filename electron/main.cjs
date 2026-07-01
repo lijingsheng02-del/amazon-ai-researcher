@@ -1303,6 +1303,173 @@ function extractAsin(value) {
   return '';
 }
 
+async function fetchAmazonProductFromPage(productUrl) {
+  const parsed = parseAmazonUrl(productUrl);
+  if (!parsed?.asin) throw new Error('未识别到有效 ASIN，请检查 Amazon 产品链接。');
+  const response = await fetchWithTimeout(productUrl, {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Safari/537.36',
+      'Accept-Language': 'en-US,en;q=0.9,zh-CN;q=0.8',
+      Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+    }
+  }, 18000);
+  if (!response.ok) throw new Error(`Amazon 页面请求失败：HTTP ${response.status}`);
+  const html = await response.text();
+  if (/Robot Check|captcha|Enter the characters you see below|automated access/i.test(html)) {
+    throw new Error('Amazon 返回了验证码/反爬页面，前台抓取失败。需要换稳定数据源，例如卖家精灵 MCP/API、PA-API 或手动粘贴数据。');
+  }
+  const title = firstCleanMatch(html, [
+    /<span[^>]+id=["']productTitle["'][^>]*>([\s\S]*?)<\/span>/i,
+    /<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']/i,
+    /<title[^>]*>([\s\S]*?)<\/title>/i
+  ]).replace(/\s*-\s*Amazon\.com\s*$/i, '');
+  const price = extractAmazonPrice(html);
+  const bullets = extractAmazonBullets(html);
+  const category = extractAmazonCategory(html);
+  const imageUrl = extractAmazonMainImage(html);
+  const image = imageUrl ? await fetchProductImageDataUrl(imageUrl, parsed.asin).catch(() => null) : null;
+  const warnings = [];
+  if (!title) warnings.push('未抓到标题');
+  if (!price) warnings.push('未抓到价格，可能是地区、变体、优惠或反爬导致');
+  if (!bullets.length) warnings.push('未抓到五点描述');
+  if (!image) warnings.push('未抓到或未能下载主图');
+  return {
+    sourceUrl: productUrl,
+    asin: parsed.asin,
+    title,
+    price,
+    category,
+    bullets,
+    image,
+    warnings
+  };
+}
+
+async function fetchWithTimeout(url, options = {}, timeoutMs = 15000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal, redirect: 'follow' });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function firstCleanMatch(html, patterns) {
+  for (const pattern of patterns) {
+    const match = String(html || '').match(pattern);
+    if (match?.[1]) return cleanHtmlText(match[1]);
+  }
+  return '';
+}
+
+function cleanHtmlText(value) {
+  return decodeHtmlEntities(String(value || '')
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim());
+}
+
+function decodeHtmlEntities(value) {
+  const map = {
+    '&amp;': '&',
+    '&quot;': '"',
+    '&#34;': '"',
+    '&#39;': "'",
+    '&apos;': "'",
+    '&lt;': '<',
+    '&gt;': '>',
+    '&nbsp;': ' '
+  };
+  return String(value || '')
+    .replace(/&(amp|quot|apos|lt|gt|nbsp);|&#(?:34|39);/g, (entity) => map[entity] || entity)
+    .replace(/&#(\d+);/g, (_entity, code) => String.fromCharCode(Number(code)))
+    .replace(/&#x([0-9a-f]+);/gi, (_entity, code) => String.fromCharCode(parseInt(code, 16)));
+}
+
+function extractAmazonPrice(html) {
+  const text = String(html || '');
+  const direct = firstCleanMatch(text, [
+    /<span[^>]+id=["']priceblock_(?:ourprice|dealprice|saleprice)["'][^>]*>([\s\S]*?)<\/span>/i,
+    /<span[^>]+id=["']tp_price_block_total_price_ww["'][^>]*>[\s\S]*?<span[^>]+class=["'][^"']*a-offscreen[^"']*["'][^>]*>([\s\S]*?)<\/span>/i,
+    /<span[^>]+class=["'][^"']*a-price[^"']*["'][^>]*>[\s\S]*?<span[^>]+class=["'][^"']*a-offscreen[^"']*["'][^>]*>([\s\S]*?)<\/span>/i
+  ]);
+  if (direct && /[$€£¥￥]\s*\d|\d+[.,]\d+/.test(direct)) return direct;
+  const jsonPrice = text.match(/"price(?:Amount)?"\s*:\s*"?([0-9]+(?:\.[0-9]+)?)"?/i);
+  if (jsonPrice) return `$${jsonPrice[1]}`;
+  return '';
+}
+
+function extractAmazonBullets(html) {
+  const results = [];
+  const text = String(html || '');
+  const featureBlock = text.match(/<div[^>]+id=["']feature-bullets["'][^>]*>([\s\S]*?)(?:<div[^>]+id=["']productOverview_feature_div|<div[^>]+id=["']aplus|<\/ul>\s*<\/div>)/i)?.[1] || text;
+  const pattern = /<li[^>]*>\s*<span[^>]*class=["'][^"']*a-list-item[^"']*["'][^>]*>([\s\S]*?)<\/span>\s*<\/li>/gi;
+  let match;
+  while ((match = pattern.exec(featureBlock))) {
+    const item = cleanHtmlText(match[1]);
+    if (
+      item.length >= 12 &&
+      !/make sure this fits|see more product details|compare with similar items|customer reviews/i.test(item) &&
+      !results.includes(item)
+    ) {
+      results.push(item);
+    }
+    if (results.length >= 8) break;
+  }
+  return results.slice(0, 6);
+}
+
+function extractAmazonCategory(html) {
+  const block = String(html || '').match(/<div[^>]+id=["']wayfinding-breadcrumbs_feature_div["'][^>]*>([\s\S]*?)<\/div>/i)?.[1] || '';
+  const crumbs = [];
+  const pattern = /<a[^>]*>([\s\S]*?)<\/a>/gi;
+  let match;
+  while ((match = pattern.exec(block))) {
+    const crumb = cleanHtmlText(match[1]);
+    if (crumb) crumbs.push(crumb);
+  }
+  return crumbs.slice(0, 4).join(' / ');
+}
+
+function extractAmazonMainImage(html) {
+  const text = String(html || '');
+  const candidates = [
+    text.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i)?.[1],
+    text.match(/"hiRes"\s*:\s*"([^"]+)"/i)?.[1],
+    text.match(/"large"\s*:\s*"([^"]+)"/i)?.[1],
+    text.match(/data-old-hires=["']([^"']+)["']/i)?.[1]
+  ].filter(Boolean);
+  return candidates[0] ? decodeHtmlEntities(candidates[0]).replace(/\\\//g, '/') : '';
+}
+
+async function fetchProductImageDataUrl(imageUrl, asin) {
+  const response = await fetchWithTimeout(imageUrl, {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Safari/537.36',
+      Accept: 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8'
+    }
+  }, 15000);
+  if (!response.ok) throw new Error(`Image fetch failed: HTTP ${response.status}`);
+  const contentType = response.headers.get('content-type') || 'image/jpeg';
+  if (!/^image\/(png|jpe?g|webp|gif)/i.test(contentType)) throw new Error(`Unsupported image type: ${contentType}`);
+  const arrayBuffer = await response.arrayBuffer();
+  const size = arrayBuffer.byteLength;
+  if (size > 5 * 1024 * 1024) throw new Error('Image exceeds 5MB');
+  const base64 = Buffer.from(arrayBuffer).toString('base64');
+  const extension = contentType.includes('png') ? 'png' : contentType.includes('webp') ? 'webp' : contentType.includes('gif') ? 'gif' : 'jpg';
+  return {
+    id: `${Date.now()}-${asin}-amazon-main`,
+    name: `${asin}-amazon-main.${extension}`,
+    type: contentType.split(';')[0],
+    size,
+    dataUrl: `data:${contentType.split(';')[0]};base64,${base64}`,
+    addedAt: now()
+  };
+}
+
 function buildCompetitorAsinInputs(product) {
   const links = parseAmazonLinks(product?.competitorUrls || '');
   const seen = new Set();
@@ -1726,6 +1893,7 @@ ipcMain.handle('reports:get', (_event, reportId) => getReport(reportId));
 ipcMain.handle('reports:delete', (_event, reportId) => deleteReport(reportId));
 ipcMain.handle('reports:rename', (_event, reportId, title) => renameReport(reportId, title));
 ipcMain.handle('reports:exportExcel', (event, reportId) => exportReportExcel(event, reportId));
+ipcMain.handle('amazon:fetchProduct', (_event, url) => fetchAmazonProductFromPage(url));
 
 ipcMain.handle('research:run', async (event, request) => {
   const product = request?.product || request;

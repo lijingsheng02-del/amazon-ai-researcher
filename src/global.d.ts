@@ -34,6 +34,23 @@ declare global {
         model: string
         engineMode: 'offline' | 'api-enhanced'
       }>
+      fetchAmazonProduct: (url: string) => Promise<{
+        sourceUrl: string
+        asin: string
+        title: string
+        price: string
+        category: string
+        bullets: string[]
+        image?: {
+          id: string
+          name: string
+          type: string
+          size: number
+          dataUrl: string
+          addedAt: string
+        }
+        warnings: string[]
+      }>
       runResearch: (product: unknown, engineMode: 'offline' | 'api-enhanced') => Promise<{ report: unknown }>
       listReports: (search: string) => Promise<Array<unknown>>
       getReport: (reportId: number) => Promise<unknown>

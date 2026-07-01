@@ -404,6 +404,18 @@ h1 {
   gap: 16px;
 }
 
+.field-with-action {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 10px;
+}
+
+.field-with-action .ghost-button {
+  height: 42px;
+  white-space: nowrap;
+}
+
 .mode-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1038,6 +1050,7 @@ h1 {
   }
 
   .form-grid,
+  .field-with-action,
   .link-preview,
   .mode-grid,
   .research-plan-main,

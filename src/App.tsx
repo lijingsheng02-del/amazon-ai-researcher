@@ -590,6 +590,7 @@ export default function App() {
   const [progress, setProgress] = useState<ProgressState>({ stage: 'queued', progress: 0, activePersonaIds: [] })
   const [search, setSearch] = useState('')
   const [busy, setBusy] = useState(false)
+  const [fetchingProduct, setFetchingProduct] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [editingReportTitle, setEditingReportTitle] = useState(false)
@@ -704,6 +705,46 @@ export default function App() {
       reader.onerror = () => reject(new Error(`读取图片失败：${file.name}`))
       reader.readAsDataURL(file)
     })
+  }
+
+  async function fetchProductFromAmazonLink() {
+    if (!product.productUrl.trim()) {
+      setError('请先粘贴 Amazon 产品链接。')
+      return
+    }
+    setFetchingProduct(true)
+    setError('')
+    setNotice('')
+    try {
+      const fetched = await window.researchApi.fetchAmazonProduct(product.productUrl.trim())
+      const currentImages = product.images || []
+      const nextImages = fetched.image && currentImages.length < maxProductImages
+        ? [...currentImages, fetched.image]
+        : currentImages
+      setProduct({
+        ...product,
+        productName: product.productName.trim() || fetched.title || product.productName,
+        price: product.price.trim() || fetched.price || product.price,
+        category: product.category.trim() || fetched.category || product.category,
+        sellingPoints: product.sellingPoints.trim() || fetched.bullets.join('\n') || product.sellingPoints,
+        images: nextImages,
+        researchNotes: [
+          product.researchNotes,
+          `Amazon 前台抓取：ASIN ${fetched.asin}${fetched.warnings.length ? `；未完整字段：${fetched.warnings.join('、')}` : '；标题、价格、五点等字段已尝试读取'}。`,
+        ].filter(Boolean).join('\n'),
+      })
+      setNotice(`已尝试抓取 Amazon 前台信息：${[
+        fetched.title ? '标题' : '',
+        fetched.price ? '价格' : '',
+        fetched.bullets.length ? `${fetched.bullets.length} 条五点` : '',
+        fetched.image ? '主图' : '',
+      ].filter(Boolean).join('、') || '未抓到核心字段'}。`)
+      if (fetched.warnings.length) setError(fetched.warnings.join('；'))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setFetchingProduct(false)
+    }
   }
 
   async function runResearch(engineMode: 'offline' | 'api-enhanced') {
@@ -991,7 +1032,7 @@ export default function App() {
           <div>
             <p className="kicker">{tr('API 增强调研', 'API-enhanced research')}</p>
             <h1>{tr('粘贴亚马逊产品链接和竞品链接。', 'Paste Amazon product and competitor links.')}</h1>
-            <p className="hero-copy">{tr('MVP 会解析链接和 ASIN 并交给模型分析；不会抓取亚马逊页面内容。若要自动读取标题、价格、评分，后续需要接 Amazon PA-API 或稳定的数据服务。', 'The MVP parses URLs and ASINs for model analysis. It does not scrape Amazon pages. Automatic title, price, and rating lookup requires PA-API or a stable product data service later.')}</p>
+            <p className="hero-copy">{tr('可以尝试从 Amazon 前台链接抓取标题、价格、五点和主图；如果遇到验证码、地区价格或页面结构变化，需要用卖家精灵 MCP/API 或手动数据补充。', 'The app can attempt to fetch title, price, bullets, and main image from the Amazon storefront link. Captcha, regional pricing, or page changes may still require MCP/API or manual data. ')}</p>
           </div>
           <button className="primary-button" onClick={() => runResearch('api-enhanced')} disabled={busy}>
             {busy ? <Loader2 className="animate-spin" size={18} /> : <Play size={18} />}
@@ -1002,7 +1043,13 @@ export default function App() {
         <Section title={tr('亚马逊链接', 'Amazon links')}>
           <div className="form-grid">
             <Field label="报告名称（可选）" value={product.reportTitle} onChange={(value) => setProduct({ ...product, reportTitle: value })} placeholder="例如：竞品链接调研 - 梳妆台" />
-            <Field label={tr('产品链接', 'Product URL')} value={product.productUrl} onChange={(value) => setProduct({ ...product, productUrl: value })} placeholder="https://www.amazon.com/dp/ASIN" />
+            <div className="field-with-action">
+              <Field label={tr('产品链接', 'Product URL')} value={product.productUrl} onChange={(value) => setProduct({ ...product, productUrl: value })} placeholder="https://www.amazon.com/dp/ASIN" />
+              <button className="ghost-button" type="button" onClick={fetchProductFromAmazonLink} disabled={fetchingProduct || busy}>
+                {fetchingProduct ? <Loader2 className="animate-spin" size={17} /> : <Download size={17} />}
+                抓取链接信息
+              </button>
+            </div>
             <Field label={tr('亚马逊类目', 'Amazon category')} value={product.category} onChange={(value) => setProduct({ ...product, category: value })} placeholder="Home & Kitchen / Vanities" />
             <Field label={tr('产品名称（可选）', 'Product name (optional)')} value={product.productName} onChange={(value) => setProduct({ ...product, productName: value })} placeholder={tr('链接无法提供标题时，用这里补充', 'Use this if the link does not provide a title')} />
             <Field label={tr('目标人群（可选）', 'Target audience (optional)')} value={product.targetAudience} onChange={(value) => setProduct({ ...product, targetAudience: value })} placeholder={tr('例如：小户型、租房、宿舍、女性用户', 'Example: small apartments, renters, dorms, women buyers')} />

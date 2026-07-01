@@ -13,6 +13,7 @@ This project uses SemVer-style versioning.
 - `0.5.0`: Added competitor ASIN comparison across API/offline research, report display, and Excel export while keeping the no-live-Amazon-data boundary explicit.
 - `0.5.1`: Increased per-image upload limit to 5MB and strengthened image optimization advice around background color, layout, target customer positioning, and per-image shooting angle.
 - `0.5.2`: Added competitor ASIN market-data input so pasted/imported ASIN fields can be summarized and compared against the user's product before full MCP/API automation.
+- `0.5.3`: Added best-effort Amazon storefront fetching from product links to auto-fill title, price, bullet points, category, and main image when the page is accessible.
 - Patch versions such as `0.4.2`: bug fixes, copy fixes, small UI corrections, documentation updates, or compatibility fixes.
 - Minor versions such as `0.5.0`: new product capabilities, new report modules, new data integrations, or major workflow improvements.
 - Major versions such as `1.0.0`: stable production release with validated core workflow and migration-safe local data handling.

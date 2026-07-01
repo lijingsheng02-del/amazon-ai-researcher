@@ -3,6 +3,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('researchApi', {
   init: () => ipcRenderer.invoke('app:init'),
   saveSettings: (settings) => ipcRenderer.invoke('settings:save', settings),
+  fetchAmazonProduct: (url) => ipcRenderer.invoke('amazon:fetchProduct', url),
   runResearch: (product, engineMode) => ipcRenderer.invoke('research:run', { product, engineMode }),
   listReports: (search) => ipcRenderer.invoke('reports:list', search),
   getReport: (reportId) => ipcRenderer.invoke('reports:get', reportId),
