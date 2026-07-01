@@ -177,7 +177,7 @@ const emptyProduct: ProductInput = {
 }
 
 const maxProductImages = 9
-const maxImageBytes = 2.5 * 1024 * 1024
+const maxImageBytes = 5 * 1024 * 1024
 
 const navItems = [
   { view: 'home' as const, label: { zh: '首页', en: 'Home' }, icon: Home },
@@ -663,7 +663,7 @@ export default function App() {
     const accepted = selected.slice(0, availableSlots)
     const oversized = accepted.find((file) => file.size > maxImageBytes)
     if (oversized) {
-      setError(`图片 ${oversized.name} 超过 2.5MB。请先压缩后再上传。`)
+      setError(`图片 ${oversized.name} 超过 5MB。请先压缩后再上传。`)
       return
     }
 
@@ -863,7 +863,7 @@ export default function App() {
     )
   }
 
-  function renderImageSection(title = '产品图片', description = '支持 JPG、PNG、WebP。MVP 会保存图片并用于报告参考；暂不做视觉识别。') {
+  function renderImageSection(title = '产品图片', description = '支持 JPG、PNG、WebP，单张不超过 5MB。API 模式会尝试做视觉识别，离线模式会按图片数量和用途给出优化方向。') {
     return (
       <Section
         title={title}
@@ -946,7 +946,7 @@ export default function App() {
             />
             <Upload size={20} />
             <strong>上传产品图、主图草稿或竞品参考图</strong>
-            <span>支持 JPG、PNG、WebP。MVP 会保存图片并用于报告参考；暂不做视觉识别。</span>
+            <span>支持 JPG、PNG、WebP，单张不超过 5MB。离线模式会按图片数量和用途给出优化方向。</span>
           </label>
 
           {(product.images || []).length > 0 && (

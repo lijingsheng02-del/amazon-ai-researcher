@@ -1173,7 +1173,7 @@ Competitor ASIN comparison boundary:
 - Use competitor notes, provided ASINs, and attached reference images to judge differentiation gaps, image proof gaps, price positioning risk, and objections.
 
 Image inspection mode:
-${includeImages ? 'Uploaded product images are attached after this text. Inspect the actual pixels. Compare product photos, dimension images, material/detail images, and lifestyle scenes. If a dimension image seems inconsistent with product photos, call it out clearly.' : 'Actual image pixels are NOT available in this request. You must say image inspection is limited and judge only from image metadata and product text.'}
+${includeImages ? 'Uploaded product images are attached after this text. Inspect the actual pixels image by image. Compare product photos, dimension images, material/detail images, and lifestyle scenes. If a dimension image seems inconsistent with product photos, call it out clearly.' : 'Actual image pixels are NOT available in this request. You must say image inspection is limited and judge only from image metadata and product text.'}
 
 Category research template:
 ${JSON.stringify(researchPlan?.template || detectCategoryTemplate(product), null, 2)}
@@ -1210,6 +1210,11 @@ Rules:
 - confidence_score must be 0 to 1.
 - image_purchase_impact must explain how the uploaded/listing images increase or decrease this persona's purchase intent.
 - image_consistency_feedback must evaluate whether images, selling points, size/material claims, and usage scenario feel consistent or create trust gaps.
+- Image optimization advice must cover background color, image layout, target customer positioning, and product shooting angle for each uploaded image where possible.
+- For each uploaded image, judge whether its role is clear: main image, dimension proof, material/detail proof, lifestyle scene, setup/installation, comparison, packaging, or accessory proof.
+- If the background color distracts from the product, lowers perceived quality, conflicts with the target customer, or weakens Amazon main-image clarity, say so directly.
+- If the layout crops important parts, leaves too much empty space, overloads text, hides scale, or fails to guide the viewer's eye, say so directly.
+- If the shooting angle fails to prove size, depth, storage capacity, material, stability, or real-life use, suggest a better angle.
 - Specifically check whether dimension images, scale references, product photos, material closeups, and lifestyle scenes appear to describe the same product.
 - Specifically mention poor image quality, low resolution, visual clutter, unreadable text, cheap rendering, inconsistent colors, unrealistic proportions, or missing proof if present.
 - Be concrete and operational. Avoid generic praise.
@@ -1442,6 +1447,26 @@ function buildImageConsistencyFeedback(product, persona, positives, negatives) {
   return `需要人工或视觉模型检查 9 图逻辑是否一致：主图吸引点击，副图逐一证明 ${point}，尺寸/材质/安装/场景图不能互相矛盾，也不能只做氛围图。`;
 }
 
+function buildPerImageOptimizationSuggestions(product) {
+  const images = Array.isArray(product.images) ? product.images : [];
+  const roles = [
+    '主图',
+    '尺寸/比例证明图',
+    '材质/细节特写图',
+    '真实使用场景图',
+    '功能步骤图',
+    '安装/收纳图',
+    '痛点对比图',
+    '竞品差异图',
+    '包装/配件图'
+  ];
+  if (!images.length) return [];
+  return images.slice(0, 9).map((image, index) => {
+    const role = roles[index] || `第 ${index + 1} 张辅助图`;
+    return `第 ${index + 1} 张图（${image.name || role}）建议定位为「${role}」：背景颜色要服务产品识别和目标客户审美，避免脏乱、过暗或与产品同色导致边界不清；图片布局要把核心卖点放在第一视觉路径，不要让文字、装饰或空白抢占主体；客户定位要明确是在说服小户型、家庭、租房、礼品或高预算用户中的哪一类；拍摄视角要能证明该图任务，例如正面证明外观，45 度证明深度和结构，俯视证明容量/布局，近景证明材质，真人或家具参照证明尺寸。`;
+  });
+}
+
 function buildListingSuggestion(product, persona) {
   const point = splitInput(product.sellingPoints)[0] || '核心功能';
   return `标题和五点应优先讲清“${point}”对 ${persona.ageRange} ${persona.occupation} 这类人的实际价值。`;
@@ -1490,23 +1515,30 @@ function buildLocalSummary(product, personaResults, selectedPersonas, researchPl
     main_image_suggestions: [
       imageCount ? `当前已上传 ${imageCount} 张图片，应筛选其中最能证明结构、尺寸和质感的一张作为主图参考。` : '当前未上传产品图片，先补白底主图，否则无法判断视觉转化风险。',
       '主图保持白底清晰，同时让关键结构和比例一眼可见。',
+      '主图背景颜色必须符合 Amazon 主图规范，以干净白底或极浅背景为主；如果是副图，背景色要匹配目标客户审美，不要为了好看牺牲产品边界和质感。',
+      '主图布局必须让产品占据主要画面，避免主体过小、角度过偏、文字过多或装饰物抢占注意力。',
+      '拍摄视角优先使用能同时证明外观、深度和结构的 45 度角；如果产品依赖尺寸信任，必须补正面、侧面或真人/家具参照。',
       '如果产品有可调节、折叠、抽屉或组合功能，主图中必须让功能状态可识别。',
       '避免只展示漂亮角度，忽略真实尺寸和材质质感。'
     ],
     aplus_image_suggestions: [
       imageCount ? '基于已上传图片，优先补齐缺失的使用场景、尺寸标注、材质特写和竞品对比。' : '先补齐产品实拍，再规划A+内容；没有图片时只能得到泛化建议。',
       '做一张目标场景图：小户型、租房、宿舍或家庭空间中的实际使用。',
+      'A+ 图片要按客户定位拆场景：价格敏感用户看性价比和尺寸证据，高预算用户看质感和设计一致性，家庭用户看安全、清洁和耐用。',
+      '每张 A+ 图都要有明确布局任务：一张讲场景，一张讲尺寸，一张讲材质，一张讲安装/使用，一张讲竞品差异；不要多张图重复同一个漂亮角度。',
+      '背景色建议保持统一色系，但不能单调；生活方式图可用温暖真实家居背景，功能解释图用浅色干净背景，材质细节图用高对比但不失真的背景。',
       '做一张痛点对比图：使用前混乱 vs 使用后有序。',
       '做一张材质与结构细节图：承重、连接、边角、表面处理。',
       '做一张竞品差异图：明确你比普通款多解决了什么。'
     ],
     image_feedback_summary: collectTopItems([
+      ...buildPerImageOptimizationSuggestions(product),
       ...personaResults.map((item) => item.image_purchase_impact),
       ...personaResults.map((item) => item.image_consistency_feedback),
       imageCount >= 9
         ? '图片数量已经接近完整 9 图链路，下一步重点不是继续加图，而是检查主图、尺寸图、材质图、场景图、安装图和对比图是否各自承担明确任务。'
         : `当前只有 ${imageCount} 张图片，建议补足到 9 张：主图、尺寸图、材质细节、场景图、功能步骤、安装/收纳、痛点对比、竞品差异、包装/配件。`
-    ]),
+    ], 12),
     competitor_asin_comparison: buildCompetitorAsinComparison(product, personaResults, template),
     qa_suggestions: [
       ...template.operator_questions,
@@ -1522,9 +1554,9 @@ function buildLocalSummary(product, personaResults, selectedPersonas, researchPl
   };
 }
 
-function collectTopItems(items) {
+function collectTopItems(items, limit = 6) {
   const cleaned = items.map((item) => String(item || '').trim()).filter(Boolean);
-  return [...new Set(cleaned)].slice(0, 6);
+  return [...new Set(cleaned)].slice(0, limit);
 }
 
 function buildPriceSummary(price, personaResults) {
