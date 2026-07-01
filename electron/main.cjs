@@ -535,6 +535,7 @@ function addProductInputSheet(workbook, report) {
     ['Report Title', report.title],
     ['Product URL', product.productUrl || ''],
     ['Competitor URLs', product.competitorUrls || ''],
+    ['Competitor ASIN Data', product.competitorAsinData || ''],
     ['Research Notes', product.researchNotes || ''],
     ['Product Name', product.productName || ''],
     ['Category', product.category || ''],
@@ -589,7 +590,8 @@ function addCompetitorSheet(workbook, report) {
 
   addSection(sheet, 'Comparison Notes');
   addKeyValueRows(sheet, [
-    ['Module Boundary', 'This module compares supplied competitor ASINs, links, and operator notes only. It does not fetch live Amazon price, rating, review count, BSR, inventory, or ad data.'],
+    ['Module Boundary', 'This module compares supplied competitor ASINs, links, pasted market data, and operator notes. It still does not automatically fetch live Amazon data until a real MCP/API data source is connected.'],
+    ['Pasted ASIN Data', product.competitorAsinData || ''],
     ['Competitor Notes', product.competitors || product.researchNotes || ''],
     ['Report Output', bulletText(summary.competitor_asin_comparison)]
   ]);
@@ -872,6 +874,7 @@ function detectCategoryTemplate(product) {
     product.sellingPoints,
     product.researchNotes,
     product.competitors,
+    product.competitorAsinData,
     product.knownWeaknesses
   ].join(' ').toLowerCase();
 
@@ -1169,8 +1172,9 @@ ${JSON.stringify(buildProductPromptPayload(product), null, 2)}
 
 Competitor ASIN comparison boundary:
 - Competitor links and ASINs are identifiers and operator-supplied context only.
-- Do not claim live Amazon price, rating, review count, BSR, inventory, or advertising data unless it is explicitly present in the product input.
-- Use competitor notes, provided ASINs, and attached reference images to judge differentiation gaps, image proof gaps, price positioning risk, and objections.
+- Do not claim live Amazon price, rating, review count, BSR, inventory, or advertising data unless it is explicitly present in competitorAsinData or another product input field.
+- Use competitor notes, provided ASINs, pasted ASIN market data, and attached reference images to judge differentiation gaps, image proof gaps, price positioning risk, and objections.
+- When competitorAsinData is present, summarize the available fields first, then compare them against the user's product. Do not treat ASIN IDs alone as market evidence.
 
 Image inspection mode:
 ${includeImages ? 'Uploaded product images are attached after this text. Inspect the actual pixels image by image. Compare product photos, dimension images, material/detail images, and lifestyle scenes. If a dimension image seems inconsistent with product photos, call it out clearly.' : 'Actual image pixels are NOT available in this request. You must say image inspection is limited and judge only from image metadata and product text.'}
@@ -1237,6 +1241,7 @@ function buildProductPromptPayload(product) {
     ...product,
     product_link_analysis: productLink,
     competitor_link_analysis: competitorLinks,
+    competitor_data_summary: summarizeCompetitorAsinData(product.competitorAsinData),
     images: images.map((image, index) => ({
       index: index + 1,
       name: image.name,
@@ -1318,6 +1323,41 @@ function buildCompetitorAsinInputs(product) {
     });
   }
   return unique.slice(0, 20);
+}
+
+function summarizeCompetitorAsinData(value) {
+  const raw = String(value || '').trim();
+  if (!raw) {
+    return {
+      provided: false,
+      source: 'none',
+      detected_asins: [],
+      lines: [],
+      available_field_groups: [],
+      boundary: 'No pasted ASIN market data. Only ASIN IDs, links, and notes are available.'
+    };
+  }
+  const detectedAsins = [...new Set((raw.match(/\b[A-Z0-9]{10}\b/gi) || []).map((item) => item.toUpperCase()))].slice(0, 30);
+  const normalized = raw.toLowerCase();
+  const availableFieldGroups = [
+    /price|价格|售价|\$|￥|¥/.test(normalized) ? 'price' : '',
+    /rating|评分|星级|star/.test(normalized) ? 'rating' : '',
+    /review|评论|评价/.test(normalized) ? 'review_count_or_review_risk' : '',
+    /bsr|排名|rank|类目排名/.test(normalized) ? 'bsr_or_rank' : '',
+    /sales|销量|月销|月销量|units/.test(normalized) ? 'sales_estimate' : '',
+    /keyword|关键词|流量词|搜索词/.test(normalized) ? 'keywords' : '',
+    /title|标题/.test(normalized) ? 'title' : '',
+    /image|图片|主图|a\+/.test(normalized) ? 'image_feedback' : '',
+    /negative|差评|低分|痛点|complaint/.test(normalized) ? 'negative_review_risks' : ''
+  ].filter(Boolean);
+  return {
+    provided: true,
+    source: 'pasted_or_imported_data',
+    detected_asins: detectedAsins,
+    lines: raw.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).slice(0, 60),
+    available_field_groups: [...new Set(availableFieldGroups)],
+    boundary: 'These are pasted/imported fields. The app has not independently verified live Amazon data.'
+  };
 }
 
 function buildRuleBasedPersonaResults(product, selectedPersonas) {
@@ -1570,13 +1610,14 @@ function buildPriceSummary(price, personaResults) {
 
 function buildCompetitorAsinComparison(product, personaResults, template) {
   const competitors = buildCompetitorAsinInputs(product);
-  const competitorNotes = splitInput(`${product.competitors || ''}\n${product.researchNotes || ''}`);
+  const dataSummary = summarizeCompetitorAsinData(product.competitorAsinData);
+  const competitorNotes = splitInput(`${product.competitors || ''}\n${product.researchNotes || ''}\n${product.competitorAsinData || ''}`);
   const highRiskCount = personaResults.filter((item) => item.purchase_intent_score <= 2).length;
   const asins = competitors.map((item) => item.asin).filter(Boolean);
-  const uniqueAsins = [...new Set(asins)];
+  const uniqueAsins = [...new Set([...asins, ...dataSummary.detected_asins])];
   const categoryName = template?.name || product.category || '当前类目';
 
-  if (!competitors.length) {
+  if (!competitors.length && !dataSummary.provided) {
     return [
       '未提供竞品 ASIN 或竞品链接，当前报告只能基于自身产品信息做判断，不能形成有效竞品对比。',
       '建议至少输入 3-5 个直接竞品 ASIN，并补充价格、评分、Review 数、主图差异和核心差评点。',
@@ -1585,11 +1626,17 @@ function buildCompetitorAsinComparison(product, personaResults, template) {
   }
 
   const items = [
-    `已识别 ${uniqueAsins.length} 个竞品 ASIN：${uniqueAsins.join(', ') || '部分链接未识别出 ASIN'}。当前模块只对你粘贴的 ASIN/链接和运营备注做结构化对比，不抓取亚马逊实时页面。`,
+    `已识别 ${uniqueAsins.length} 个竞品 ASIN：${uniqueAsins.join(', ') || '部分链接/数据未识别出 ASIN'}。当前模块会合并 ASIN、竞品链接、抓取数据和运营备注做对比，但不会自动抓取实时亚马逊页面。`,
+    dataSummary.provided
+      ? `已纳入你粘贴的竞品抓取数据，可用字段包括：${dataSummary.available_field_groups.join('、') || '字段名不规范，建议补充价格、评分、Review、BSR、销量、关键词和差评点'}。`
+      : '当前只识别到 ASIN/链接，没有竞品抓取字段。ASIN 只是 ID，不能替代价格、评分、Review、BSR、销量、关键词和差评点。',
     `${categoryName} 的对比重点应放在：价格带是否被证明、主图是否更可信、尺寸/材质证据是否更清楚、差评风险是否被提前解释、核心卖点是否比竞品更具体。`,
     product.price
       ? `你的目标价为 ${product.price}。如果竞品价格低于该价位，页面必须用材质、尺寸、功能、配件、保修或场景价值解释溢价；否则高价格敏感 persona 会优先流失。`
       : '当前未填写目标价，无法判断相对竞品价格压力。竞品 ASIN 对比必须补价格带，否则对运营决策帮助很有限。',
+    dataSummary.provided
+      ? `下一步应把抓取数据整理成横向表：ASIN、标题、价格、评分、Review 数、BSR/月销、核心关键词、主图问题、差评集中点、你的对应优势/劣势。这样才能判断你的产品是价格胜、卖点胜、图片胜，还是风险更高。`
+      : '你需要把每个 ASIN 能抓到的信息贴进“竞品 ASIN 抓取数据”字段；只输入 ASIN 编号，软件无法知道竞品的真实价格、评分、销量或差评结构。',
     highRiskCount
       ? `有 ${highRiskCount} 个 persona 给出低购买意向，竞品对比图应优先回应这些阻力，而不是只做“我们更好”的空泛表格。`
       : '低购买意向 persona 不多，但仍应做竞品差异图，防止用户在同价位列表页里只按主图和价格快速跳走。',
@@ -1602,7 +1649,7 @@ function buildCompetitorAsinComparison(product, personaResults, template) {
     items.push('你没有补充竞品备注。只粘 ASIN 不够，至少要人工记录竞品低分评论、主图问题、价格和卖点结构。');
   }
 
-  return collectTopItems(items);
+  return collectTopItems(items, 8);
 }
 
 function buildChatCompletionsEndpoint(baseUrl) {

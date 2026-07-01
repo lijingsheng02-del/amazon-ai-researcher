@@ -33,6 +33,7 @@ type ProductInput = {
   reportTitle: string
   productUrl: string
   competitorUrls: string
+  competitorAsinData: string
   researchNotes: string
   productName: string
   category: string
@@ -163,6 +164,7 @@ const emptyProduct: ProductInput = {
   reportTitle: '',
   productUrl: '',
   competitorUrls: '',
+  competitorAsinData: '',
   researchNotes: '',
   productName: '',
   category: '',
@@ -970,6 +972,7 @@ export default function App() {
           <div className="form-grid">
             <Field multiline label={tr('核心卖点', 'Core selling points')} value={product.sellingPoints} onChange={(value) => setProduct({ ...product, sellingPoints: value })} placeholder={tr('逐条写清楚，不要只写“高品质”。', 'Write concrete points line by line; avoid vague claims like “high quality”.')} />
             <Field multiline label={tr('竞品信息', 'Competitor notes')} value={product.competitors} onChange={(value) => setProduct({ ...product, competitors: value })} placeholder={tr('竞品价格、差评点、主图风格、卖点结构。', 'Competitor price, bad-review points, image style, claim structure.')} />
+            <Field multiline label="竞品 ASIN 抓取数据" value={product.competitorAsinData} onChange={(value) => setProduct({ ...product, competitorAsinData: value })} placeholder="可粘贴卖家精灵/Keepa/表格数据：ASIN、标题、价格、评分、Review数、BSR、月销量、类目、关键词、差评点、图片问题。" />
             <Field multiline label={tr('已知缺点', 'Known weaknesses')} value={product.knownWeaknesses} onChange={(value) => setProduct({ ...product, knownWeaknesses: value })} placeholder={tr('如实写。隐藏缺点只会让调研结论变弱。', 'Be honest. Hiding weaknesses weakens the research output.')} />
           </div>
         </Section>
@@ -1004,6 +1007,7 @@ export default function App() {
             <Field label={tr('产品名称（可选）', 'Product name (optional)')} value={product.productName} onChange={(value) => setProduct({ ...product, productName: value })} placeholder={tr('链接无法提供标题时，用这里补充', 'Use this if the link does not provide a title')} />
             <Field label={tr('目标人群（可选）', 'Target audience (optional)')} value={product.targetAudience} onChange={(value) => setProduct({ ...product, targetAudience: value })} placeholder={tr('例如：小户型、租房、宿舍、女性用户', 'Example: small apartments, renters, dorms, women buyers')} />
             <Field multiline label={tr('竞品链接', 'Competitor URLs')} value={product.competitorUrls} onChange={(value) => setProduct({ ...product, competitorUrls: value })} placeholder={tr('每行一个 Amazon 竞品链接。系统会解析 ASIN 和域名，作为模型对比输入。', 'One Amazon competitor URL per line. The app parses ASINs and domains for model context.')} />
+            <Field multiline label="竞品 ASIN 抓取数据" value={product.competitorAsinData} onChange={(value) => setProduct({ ...product, competitorAsinData: value })} placeholder="把卖家精灵/MCP/API 抓到的数据粘贴到这里：ASIN、标题、价格、评分、Review数、BSR、月销量、关键词、差评点、主图问题等。" />
             <Field multiline label={tr('补充说明', 'Research notes')} value={product.researchNotes} onChange={(value) => setProduct({ ...product, researchNotes: value })} placeholder={tr('你已经知道的竞品差评、价格带、主图问题、想验证的假设。', 'Known competitor complaints, price bands, image issues, or hypotheses to test.')} />
           </div>
           <div className="link-preview">

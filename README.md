@@ -6,7 +6,7 @@ The app is designed for internal research, product planning, listing strategy, a
 
 ## Current Version
 
-`v0.5.1`
+`v0.5.2`
 
 ## Key Features
 
@@ -28,6 +28,7 @@ The app is designed for internal research, product planning, listing strategy, a
 - Amazon product link and competitor link input.
 - Competitor ASIN comparison module based on supplied ASINs, competitor links, and operator notes.
 - Competitor ASINs are parsed into reports and Excel exports without pretending to fetch live Amazon marketplace data.
+- Pasted/imported competitor ASIN market data can be summarized and compared against the user's product, including price, rating, review, BSR, sales, keyword, image, and negative-review signals when supplied.
 - Operator-facing report modules covering:
   - Purchase intent
   - Positive buying drivers
